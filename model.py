@@ -629,14 +629,19 @@ class OneIEpp(nn.Module):
 
         span_candidates_idxs = span_candidates_idxs.reshape(1, -1, 1)
 
+        #bs, span_num, 1
+        #contains span pos id
+
         #TODO: change to work with larger batch size
 
         span_candidate_repr = entity_span_repr.gather(
             1, span_candidates_idxs.expand(-1, -1, repr_dim))
 
+        #bs, span_num, span_dim
+
         entity_type, trigger_type = self.span_transformer(span_candidate_repr)
 
-
+        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type
 
         # Calculate span label scores
         entity_span_score = self.entity_classifier(entity_span_repr)
@@ -675,7 +680,7 @@ class OneIEpp(nn.Module):
         trigger_num = trigger_repr.size(1)
 
         rel_score, role_score = None, None
-trigger_span_repr
+
         if self.config.get("classify_relations"):
             # Generate relation representations
             rel_src_repr = self.relation_classifier.forward_src(entity_repr)
@@ -775,7 +780,7 @@ trigger_span_repr
                 return scores, local_scores, span_candidate_score
 
     def forward(self, batch: Batch, last_only: bool = True):
-        gnn_scores, local_scores, span_candidate_score = self.forward_nn(batch)
+        span_candidate_score, span_candidates_idxs, entity_type, trigger_type = self.forward_nn(batch)
 
         loss_names = []
 
@@ -789,7 +794,8 @@ trigger_span_repr
             print('span_candidate_loss is NaN')
             print(batch)
 
-        entity_loss = self.entity_loss(local_scores['entity'], batch.entity_labels)
+        entity_loss = self.entity_loss(entity_type, batch.entity_labels.gather(span_candidates_idxs))
+        #something like that
         if not torch.isnan(entity_loss):
             loss.append(entity_loss)
             loss_names.append("entity")
@@ -797,7 +803,8 @@ trigger_span_repr
             print('Entity loss is NaN')
             print(batch)
 
-        trigger_loss = self.event_loss(local_scores['trigger'], batch.trigger_labels)
+        trigger_loss = self.trigger_loss(trigger_type, batch.trigger_labels.gather(span_candidates_idxs))
+        # something like that
         if not torch.isnan(trigger_loss):
             loss.append(trigger_loss)
             loss_names.append("trigger")
@@ -868,7 +875,7 @@ trigger_span_repr
                     print(batch)
 
         #loss = sum(loss) if loss else None
-        return loss, local_scores, gnn_scores, loss_names
+        return loss#, local_scores, gnn_scores, loss_names
 
     def predict(self, batch: Batch):
         self.eval()

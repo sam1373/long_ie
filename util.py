@@ -609,6 +609,16 @@ def build_local_information_graph(batch,
     return graphs, candidates, candidate_scores
 
 
+def build_information_graph(batch,
+                            span_candidate_score,
+                            span_candidates_idxs,
+                            entity_type,
+                            trigger_type,
+                            vocabs):
+
+    return
+
+
 def load_model(path, model, device=0, gpu=True):
     print('Loading the model from {}'.format(path))
     map_location = 'cuda:{}'.format(device) if gpu else 'cpu'
