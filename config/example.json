@@ -4,7 +4,7 @@
     "multi_piece_strategy": "average",
     "bert_dropout": 0.5,
     "use_extra_bert": false,
-    "extra_bert": 0,
+    "extra_bert": -3,
 
     "use_global_features": true,
     "global_features": [],
@@ -36,7 +36,7 @@
     "accumulate_step": 1,
     "batch_size": 1,
     "eval_batch_size": 1,
-    "max_epoch": 80,
+    "max_epoch": 150,
     "learning_rate": 1e-3,
     "bert_learning_rate": 1e-5,
     "weight_decay": 1e-3,

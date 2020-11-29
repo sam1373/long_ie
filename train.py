@@ -75,7 +75,6 @@ best_role_model = os.path.join(output_dir, 'best.role.mdl')
 dev_result_file = os.path.join(output_dir, 'result.dev.json')
 test_result_file = os.path.join(output_dir, 'result.test.json')
 
-writer = SummaryWriter()
 
 
 word_embed_dim = 0
@@ -146,11 +145,13 @@ print('Initialize model')
 else:
     bert = RobertaModel.from_pretrained(bert_model,
                                         cache_dir=bert_dir)"""
-bert = RobertaModelPlus.from_pretrained(model_name,
-                                        cache_dir=bert_dir,
-                                        output_hidden_states=True)
 
-#bert = LongformerModel.from_pretrained("allenai/longformer-base-4096")
+"""bert = RobertaModelPlus.from_pretrained(model_name,
+                                        cache_dir=bert_dir,
+                                        output_hidden_states=True,
+                                        fast=True)"""
+
+bert = LongformerModel.from_pretrained("allenai/longformer-base-4096")
 
 bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
@@ -233,7 +234,9 @@ model = OneIEpp(config,
                 span_len_embed=span_len_embed,
                 word_embed=word_embed,
                 gnn=None,
-                extra_bert=extra_bert)
+                extra_bert=extra_bert,
+                span_repr_dim=node_dim,
+                span_comp_dim=512)
 
 # model.load_bert(model_name, cache_dir=config.bert_cache_dir)
 if use_gpu:
@@ -244,25 +247,27 @@ if use_gpu:
 if skip_train == False:
     # optimizer
 
-    """param_groups = [
+    param_groups = [
         {
             'params': [p for n, p in model.named_parameters() if n.startswith('encoder')],
-            'lr': 1e-4, 'weight_decay': 1e-5
+            'lr': 1e-6, 'weight_decay': 1e-6
         },
         {
             'params': [p for n, p in model.named_parameters() if not n.startswith('encoder')],
             'lr': 1e-3, 'weight_decay': 1e-4
         },
-    ]"""
+    ]
 
-    optimizer = optim.AdaBound(model.parameters(),
+    optimizer = torch.optim.Adam(params=param_groups)
+
+    """optimizer = optim.AdaBound(model.parameters(),
                                lr=1e-3,
                                betas=(0.9, 0.999),
                                final_lr=0.1,
                                gamma=1e-3,
                                eps=1e-8,
                                weight_decay=0,
-                               amsbound=False)
+                               amsbound=False)"""
 
     schedule = get_linear_schedule_with_warmup(optimizer,
                                                num_warmup_steps=batch_num * 5,
@@ -280,6 +285,8 @@ best_dev_score = best_test_score = 0.1
 
 global_step = 0
 
+writer = SummaryWriter()
+
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
@@ -291,7 +298,7 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
-            loss, _, _, train_loss_names = model(batch)
+            loss, train_loss_names = model(batch)
             # print(loss)
             # print(batch.pieces.shape, batch.entity_labels.shape, batch.relation_labels.shape)
             # print(batch.trigger_labels.shape, batch.role_labels.shape)
@@ -342,12 +349,9 @@ for epoch in range(epoch_num):
             if batch_idx % 10 == 0:
                 result = model.predict(batch)
 
-                if use_gnn:
-                    pred_graphs = build_information_graph(batch, *result, vocabs)
-                else:
-                    pred_graphs, candidates, candidate_scores = build_local_information_graph(batch, *result, vocabs)
+                pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
-                summary_entities(pred_graphs[0], batch.graphs[0], batch, candidates, candidate_scores,
+                summary_entities(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
                                  writer, global_step, "train_")
 
     # Dev
@@ -363,7 +367,7 @@ for epoch in range(epoch_num):
     for batch in tqdm(dev_loader, ncols=75):
         result = model.predict(batch)
 
-        max_entity_pred = max(max_entity_pred, result[3][0])
+        #max_entity_pred = max(max_entity_pred, result[3][0])
 
         # writer.add_image("dev_entity_span_scores", result[1]['entity'].softmax(1).unsqueeze(0).cpu(), global_step)
 
@@ -373,13 +377,10 @@ for epoch in range(epoch_num):
 
         writer.add_image("dev_entity_span_table", dev_entity_span_table, global_step)"""
 
-        if use_gnn:
-            pred_graphs = build_information_graph(batch, *result, vocabs)
-        else:
-            pred_graphs, candidates, candidate_scores = build_local_information_graph(batch, *result, vocabs)
+        pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
-            summary_entities(pred_graphs[0], batch.graphs[0], batch, candidates, candidate_scores,
-                             writer, global_step, "dev_")
+        summary_entities(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+                         writer, global_step, "dev_")
 
         pred_dev_graphs.extend(pred_graphs)
         gold_dev_graphs.extend(batch.graphs)
@@ -410,7 +411,7 @@ for epoch in range(epoch_num):
         torch.save(state, "model.pt")
         best_dev_score = dev_scores[score_to_use]['f']
 
-    """# Test
+    # Test
     test_loader = DataLoader(test_set,
                              batch_size,
                              shuffle=False,
@@ -419,10 +420,9 @@ for epoch in range(epoch_num):
     test_sent_ids, test_tokens = [], []
     for batch in tqdm(test_loader, ncols=75):
         result = model.predict(batch)
-        if use_gnn:
-            pred_graphs = build_information_graph(batch, *result, vocabs)
-        else:
-            pred_graphs, candidates = build_local_information_graph(batch, *result, vocabs)
+
+        pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+
         pred_test_graphs.extend(pred_graphs)
         gold_test_graphs.extend(batch.graphs)
         test_sent_ids.extend(batch.sent_ids)
@@ -439,12 +439,12 @@ for epoch in range(epoch_num):
                 gold_test_graphs,
                 pred_test_graphs,
                 test_sent_ids,
-                tokens=test_tokens)"""
+                tokens=test_tokens)
 
     # torch.save(model, "model.pt")
 
-    # for k, v in dev_scores.items():
-    #    writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
+    #for k, v in test_scores.items():
+    #    writer.add_scalar('test_' + k + '_f', v['f'], global_step)
 
     # log_writer.write(json.dumps({'epoch': epoch,
     #                             'dev': dev_scores,

@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 import transformers
 from data import Batch
-from util import label2onehot
+from util import label2onehot, elem_max
 
 from span_transformer import SpanTransformer
 
@@ -145,7 +145,9 @@ class OneIEpp(nn.Module):
                  span_len_embed:nn.Module = None,
                  word_embed:nn.Module = None,
                  gnn: nn.Module = None,
-                 extra_bert: int = 0
+                 extra_bert: int = 0,
+                 span_repr_dim: int = 512,
+                 span_comp_dim: int = 512,
                  ):
         super().__init__()
 
@@ -157,7 +159,12 @@ class OneIEpp(nn.Module):
         self.span_candidate_classifier = Linears([node_dim, 200, 200, 2],
                             dropout_prob=.2)
 
-        self.span_transformer = SpanTransformer()
+        self.span_compress = nn.Linear(span_repr_dim, span_comp_dim)
+
+        self.span_transformer = SpanTransformer(span_dim=span_comp_dim,
+                                                vocabs=vocabs,
+                                                final_pred_embeds=True,
+                                                num_layers=4)
 
         self.entity_classifier = entity_classifier
         self.mention_classifier = mention_classifier
@@ -203,6 +210,7 @@ class OneIEpp(nn.Module):
             indices.
         """
         all_bert_outputs = self.encoder(inputs, attention_mask=attention_mask, output_hidden_states=True)
+
         bert_outputs = all_bert_outputs[0]
 
         if self.use_extra_bert:
@@ -639,6 +647,8 @@ class OneIEpp(nn.Module):
 
         #bs, span_num, span_dim
 
+        span_candidate_repr = self.span_compress(span_candidate_repr)
+
         entity_type, trigger_type = self.span_transformer(span_candidate_repr)
 
         return span_candidate_score, span_candidates_idxs, entity_type, trigger_type
@@ -786,7 +796,11 @@ class OneIEpp(nn.Module):
 
         loss = []
 
-        span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2), (batch.entity_labels > 0).type(torch.LongTensor).cuda())
+        span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2),
+                                             (batch.entity_labels > 0).\
+                                             #(elem_max(batch.entity_labels > 0, batch.trigger_labels > 0)).\
+                                             type(torch.LongTensor).cuda())
+
         if not torch.isnan(span_candidate_loss):
             loss.append(span_candidate_loss)
             loss_names.append("span_candidate")
@@ -794,7 +808,10 @@ class OneIEpp(nn.Module):
             print('span_candidate_loss is NaN')
             print(batch)
 
-        entity_loss = self.entity_loss(entity_type, batch.entity_labels.gather(span_candidates_idxs))
+        #TODO: also fix for bs > 1
+
+        entity_loss = self.criteria(entity_type.view(-1, len(self.vocabs["entity"])),
+                                       batch.entity_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
         #something like that
         if not torch.isnan(entity_loss):
             loss.append(entity_loss)
@@ -803,14 +820,15 @@ class OneIEpp(nn.Module):
             print('Entity loss is NaN')
             print(batch)
 
-        trigger_loss = self.trigger_loss(trigger_type, batch.trigger_labels.gather(span_candidates_idxs))
+        """trigger_loss = self.criteria(trigger_type.view(-1, len(self.vocabs["event"])),
+                                         batch.trigger_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
         # something like that
         if not torch.isnan(trigger_loss):
             loss.append(trigger_loss)
             loss_names.append("trigger")
         else:
             print('Trigger loss is NaN')
-            print(batch)
+            print(batch)"""
 
         if self.config.get("classify_relations"):
             if batch.relation_labels.size(0):
@@ -875,7 +893,7 @@ class OneIEpp(nn.Module):
                     print(batch)
 
         #loss = sum(loss) if loss else None
-        return loss#, local_scores, gnn_scores, loss_names
+        return loss, loss_names
 
     def predict(self, batch: Batch):
         self.eval()

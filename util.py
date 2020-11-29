@@ -615,8 +615,77 @@ def build_information_graph(batch,
                             entity_type,
                             trigger_type,
                             vocabs):
+    entity_itos = {i: s for s, i in vocabs['entity'].items()}
+    trigger_itos = {i: s for s, i in vocabs['event'].items()}
+    relation_itos = {i: s for s, i in vocabs['relation'].items()}
+    role_itos = {i: s for s, i in vocabs['role'].items()}
 
-    return
+    _candidates = []
+    _candidate_scores = []
+
+    graphs = []
+    for graph_idx in range(batch.batch_size):
+        # Predict candidate spans
+        candidates = []
+        candidate_scores = span_candidate_score[graph_idx].softmax(1)[:, 1].tolist()
+        for idx in range(len(candidate_scores)):
+            if candidate_scores[idx] > 0.5:
+                start, end = batch.entity_offsets[idx]
+                candidates.append((start, end))
+
+        _candidates.append(candidates)
+        _candidate_scores.append(candidate_scores)
+
+        span_cand_idxs = span_candidates_idxs[graph_idx, :, 0].tolist()
+        en = entity_type[graph_idx].max(-1)[1].tolist()
+        tt = trigger_type[graph_idx].max(-1)[1].tolist()
+
+        entities = []
+        triggers = []
+
+        for i, idx in enumerate(span_cand_idxs):
+
+            start, end = batch.entity_offsets[idx]
+
+            span_et = en[i]
+            span_tt = tt[i]
+
+            if span_et > 0:
+                entities.append((start, end, entity_itos[span_et]))
+
+            if span_tt > 0:
+                triggers.append((start, end, trigger_itos[span_tt]))
+
+        """# Predict entities
+        entities = []
+        entity_scores = all_scores['entity']  # [graph_idx]
+        if entity_scores.size(0) > 0 and entity_num:
+            entity_scores = entity_scores[:entity_num]
+            entity_type_idxs = entity_scores.max(1)[1].tolist()
+            for idx, entity_type_idx in enumerate(entity_type_idxs):
+                if entity_type_idx > 0:
+                    entity_type = entity_itos[entity_type_idx]
+                    start, end = inst_entity_offsets[idx]
+                    entities.append((start, end, entity_type))
+                    entity_idx_map[idx] = len(entity_idx_map)
+
+        # Predict triggers
+        triggers = []
+        trigger_scores = all_scores['trigger']  # [graph_idx]
+        if trigger_scores.size(0) > 0 and trigger_num:
+            trigger_scores = trigger_scores[:trigger_num]
+            trigger_type_idxs = trigger_scores.max(1)[1].tolist()
+
+            for idx, trigger_type_idx in enumerate(trigger_type_idxs):
+                if trigger_type_idx > 0:
+                    trigger_type = trigger_itos[trigger_type_idx]
+                    start, end = inst_trigger_offsets[idx]
+                    triggers.append((start, end, trigger_type))
+                    trigger_idx_map[idx] = len(trigger_idx_map)"""
+
+        graphs.append(Graph(entities, triggers, [], []))
+
+    return graphs, _candidates, _candidate_scores
 
 
 def load_model(path, model, device=0, gpu=True):
@@ -651,24 +720,31 @@ def summary_entities(pred_graph, true_graph, batch, candidates, candidate_scores
     for (s, e) in candidates:
         span_candidates.append(("|".join(tokens[s:e]), s, e, round(candidate_scores[rev_offsets[(s, e)]], 2)))
 
-    true_entities = []
+    true_spans = []
+
     for (s, e, t) in true_graph.entities:
         score = -1
         if (s, e) in rev_offsets:
             score = round(candidate_scores[rev_offsets[(s, e)]], 2)
-        true_entities.append(("|".join(tokens[s:e]), s, e, score))
+        true_spans.append(("|".join(tokens[s:e]), s, e, score))
+
+    for (s, e, t) in true_graph.triggers:
+        score = -1
+        if (s, e) in rev_offsets:
+            score = round(candidate_scores[rev_offsets[(s, e)]], 2)
+        true_spans.append(("|".join(tokens[s:e]), s, e, score))
 
     writer.add_text(prefix + "span_candidates", " ".join(str(span_candidates)), global_step)
-    writer.add_text(prefix + "true_spans", " ".join(str(true_entities)), global_step)
+    writer.add_text(prefix + "true_spans", " ".join(str(true_spans)), global_step)
     #writer.add_text(prefix + "full_text", "|".join(tokens), global_step)
 
     span_candidates = set(span_candidates)
 
-    true_entities = set(true_entities)
+    true_spans = set(true_spans)
 
-    predicted_false = span_candidates - true_entities
+    predicted_false = span_candidates - true_spans
 
-    not_predicted = true_entities - span_candidates
+    not_predicted = true_spans - span_candidates
 
     writer.add_text(prefix + "candidates_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix + "candidates_not_predicted", " ".join(str(not_predicted)), global_step)
@@ -737,3 +813,8 @@ def load_word_embed(path: str,
                                               freeze=freeze,
                                               padding_idx=0)
     return word_embed, vocab
+
+
+def elem_max(t1, t2):
+    combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
+    return torch.max(combined, dim=-1)[0].squeeze(-1)
