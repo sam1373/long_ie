@@ -16,7 +16,7 @@ from data2 import IEDataset
 from scorer import score_graphs
 from util import generate_vocabs, load_valid_patterns, save_result, best_score_by_task, \
     build_information_graph, build_local_information_graph, label2onehot, load_model, \
-    summary_entities, load_word_embed
+    summary_graph, load_word_embed
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -101,9 +101,9 @@ tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
                                              do_lower_case=False)
 
 if args.debug:
-    train_set = IEDataset(config.test_file, config, word_vocab)
-    dev_set = IEDataset(config.test_file, config, word_vocab)
-    test_set = IEDataset(config.test_file, config, word_vocab)
+    train_set = IEDataset(config.dev_file, config, word_vocab)
+    dev_set = IEDataset(config.dev_file, config, word_vocab)
+    test_set = IEDataset(config.dev_file, config, word_vocab)
 else:
     train_set = IEDataset(config.train_file, config, word_vocab)
     dev_set = IEDataset(config.dev_file, config, word_vocab)
@@ -254,11 +254,11 @@ if skip_train == False:
         },
         {
             'params': [p for n, p in model.named_parameters() if not n.startswith('encoder')],
-            'lr': 1e-3, 'weight_decay': 1e-4
+            'lr': 1e-4, 'weight_decay': 1e-4
         },
     ]
 
-    optimizer = torch.optim.Adam(params=param_groups)
+    optimizer = AdamW(params=param_groups)
 
     """optimizer = optim.AdaBound(model.parameters(),
                                lr=1e-3,
@@ -346,13 +346,13 @@ for epoch in range(epoch_num):
                 # gc.collect()
 
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
-            if batch_idx % 10 == 0:
+            if batch_idx % 50 == 0:
                 result = model.predict(batch)
 
                 pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
-                summary_entities(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
-                                 writer, global_step, "train_")
+                summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+                              writer, global_step, "train_")
 
     # Dev
     dev_loader = DataLoader(dev_set,
@@ -379,8 +379,8 @@ for epoch in range(epoch_num):
 
         pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
-        summary_entities(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
-                         writer, global_step, "dev_")
+        summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+                      writer, global_step, "dev_")
 
         pred_dev_graphs.extend(pred_graphs)
         gold_dev_graphs.extend(batch.graphs)

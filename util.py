@@ -614,6 +614,7 @@ def build_information_graph(batch,
                             span_candidates_idxs,
                             entity_type,
                             trigger_type,
+                            relation_type,
                             vocabs):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
@@ -643,6 +644,9 @@ def build_information_graph(batch,
         entities = []
         triggers = []
 
+        cur_ents = 0
+        pos_ent_num = []
+
         for i, idx in enumerate(span_cand_idxs):
 
             start, end = batch.entity_offsets[idx]
@@ -652,9 +656,38 @@ def build_information_graph(batch,
 
             if span_et > 0:
                 entities.append((start, end, entity_itos[span_et]))
+                pos_ent_num.append(cur_ents)
+                cur_ents += 1
+            else:
+                pos_ent_num.append(-1)
 
             if span_tt > 0:
                 triggers.append((start, end, trigger_itos[span_tt]))
+
+        relations = []
+
+        if relation_type is not None:
+
+            relation_matrix = relation_type[graph_idx].max(-1)[1]
+
+            w, h = relation_matrix.shape[:2]
+
+            #bidirectional for now
+            for i in range(w):
+                for j in range(i+1, h):
+
+                    cur_rel = max(relation_matrix[i, j], relation_matrix[j, i]).item()
+
+                    if cur_rel:
+
+                        cur_rel_type = relation_itos[cur_rel]
+
+                        if pos_ent_num[i] == -1 or pos_ent_num[j] == -1:
+                            continue
+
+                        relations.append((pos_ent_num[i],
+                                          pos_ent_num[j],
+                                          cur_rel_type))
 
         """# Predict entities
         entities = []
@@ -683,7 +716,7 @@ def build_information_graph(batch,
                     triggers.append((start, end, trigger_type))
                     trigger_idx_map[idx] = len(trigger_idx_map)"""
 
-        graphs.append(Graph(entities, triggers, [], []))
+        graphs.append(Graph(entities, triggers, relations, []))
 
     return graphs, _candidates, _candidate_scores
 
@@ -703,8 +736,8 @@ def load_model(path, model, device=0, gpu=True):
     return model, vocabs, optimizer
 
 
-def summary_entities(pred_graph, true_graph, batch, candidates, candidate_scores,
-                     writer, global_step, prefix):
+def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
+                  writer, global_step, prefix):
 
     tokens = batch.tokens[0]
 
@@ -763,16 +796,52 @@ def summary_entities(pred_graph, true_graph, batch, candidates, candidate_scores
     writer.add_text(prefix+"true_entities", " ".join(str(true_entities)), global_step)
     writer.add_text(prefix+"full_text", "|".join(tokens), global_step)
 
-    predicted_entities = set(predicted_entities)
+    predicted_entities_set = set(predicted_entities)
 
-    true_entities = set(true_entities)
+    true_entities_set = set(true_entities)
 
-    predicted_false = predicted_entities - true_entities
+    predicted_false = predicted_entities_set - true_entities_set
 
-    not_predicted = true_entities - predicted_entities
+    not_predicted = true_entities_set - predicted_entities_set
 
     writer.add_text(prefix+"predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix+"not_predicted", " ".join(str(not_predicted)), global_step)
+
+    ##############################
+
+    predicted_relations = []
+
+    for (a, b, t) in pred_graph.relations:
+        arg1 = predicted_entities[a][0]
+        arg2 = predicted_entities[b][0]
+        if arg1 > arg2:
+            arg1, arg2 = arg2, arg1
+        dist = abs(predicted_entities[a][2] - predicted_entities[b][2])
+        predicted_relations.append((arg1, arg2, t, dist))
+
+    true_relations = []
+
+    for (a, b, t) in true_graph.relations:
+        arg1 = true_entities[a][0]
+        arg2 = true_entities[b][0]
+        if arg1 > arg2:
+            arg1, arg2 = arg2, arg1
+        dist = abs(true_entities[a][2] - true_entities[b][2])
+        true_relations.append((arg1, arg2, t, dist))
+
+    writer.add_text(prefix + "predicted_relations", " ".join(str(predicted_relations)), global_step)
+    writer.add_text(prefix + "true_relations", " ".join(str(true_relations)), global_step)
+
+    predicted_relations = set(predicted_relations)
+
+    true_relations = set(true_relations)
+
+    predicted_false = predicted_relations - true_relations
+
+    not_predicted = true_relations - predicted_relations
+
+    writer.add_text(prefix + "rels_predicted_false", " ".join(str(predicted_false)), global_step)
+    writer.add_text(prefix + "rels_not_predicted", " ".join(str(not_predicted)), global_step)
 
 
 def load_word_embed(path: str,
@@ -818,3 +887,13 @@ def load_word_embed(path: str,
 def elem_max(t1, t2):
     combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
     return torch.max(combined, dim=-1)[0].squeeze(-1)
+
+def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagnol: bool = False):
+    idxs1, idxs2 = [], []
+    for i in range(num1):
+        for j in range(num2):
+            if i == j and skip_diagnol:
+                continue
+            idxs1.append(i)
+            idxs2.append(j)
+    return idxs1, idxs2

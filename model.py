@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 import transformers
 from data import Batch
-from util import label2onehot, elem_max
+from util import label2onehot, elem_max, get_pairwise_idxs_separate
 
 from span_transformer import SpanTransformer
 
@@ -34,15 +34,6 @@ def get_pairwise_idxs(num1: int, num2: int, skip_diagonal: bool = False):
             idxs.append(j + num1)
     return idxs
 
-def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagnol: bool = False):
-    idxs1, idxs2 = [], []
-    for i in range(num1):
-        for j in range(num2):
-            if i == j and skip_diagnol:
-                continue
-            idxs1.append(i)
-            idxs2.append(j)
-    return idxs1, idxs2
 
 
 def transpose_edge_feats(edge_feats: torch.Tensor, src_num: int, dst_num: int):
@@ -164,7 +155,7 @@ class OneIEpp(nn.Module):
         self.span_transformer = SpanTransformer(span_dim=span_comp_dim,
                                                 vocabs=vocabs,
                                                 final_pred_embeds=True,
-                                                num_layers=4)
+                                                num_layers=3)
 
         self.entity_classifier = entity_classifier
         self.mention_classifier = mention_classifier
@@ -184,7 +175,7 @@ class OneIEpp(nn.Module):
         event_weights[0] /= 50.
 
         rel_weights = torch.ones(len(vocabs['relation'])).cuda()
-        #rel_weights[0] /= len(vocabs['relation'])
+        rel_weights[0] /= 5.
 
         role_weights = torch.ones(len(vocabs['role'])).cuda()
         #role_weights[0] /= len(vocabs['role'])
@@ -633,7 +624,21 @@ class OneIEpp(nn.Module):
 
         span_candidate_score = self.span_candidate_classifier(entity_span_repr)
 
-        span_candidates_idxs = span_candidate_score.max(2)[1].nonzero()[:, 1]
+        if not predict:
+
+            span_candidate_score_with_true = span_candidate_score.clone()
+
+            score_shape = span_candidate_score.shape[:2] + (1,)
+
+            scores_for_true_spans = torch.cat((torch.zeros(score_shape), torch.ones(score_shape) * 100.), dim=-1).cuda()
+
+            span_candidate_score_with_true.scatter_(1, batch.pos_entity_idxs.unsqueeze(-1).expand(-1, -1, 2),
+                                                   scores_for_true_spans)
+
+            span_candidates_idxs = span_candidate_score_with_true.max(2)[1].nonzero()[:, 1]
+
+        else:
+            span_candidates_idxs = span_candidate_score.max(2)[1].nonzero()[:, 1]
 
         span_candidates_idxs = span_candidates_idxs.reshape(1, -1, 1)
 
@@ -649,9 +654,24 @@ class OneIEpp(nn.Module):
 
         span_candidate_repr = self.span_compress(span_candidate_repr)
 
-        entity_type, trigger_type = self.span_transformer(span_candidate_repr)
 
-        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type
+        true_spans = None
+
+        if not predict:
+            true_entity_labels = batch.entity_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1)
+
+            true_spans = true_entity_labels.nonzero()
+
+            true_spans = true_spans.view(1, -1)
+
+        entity_type, trigger_type, relation_type = self.span_transformer(span_candidate_repr,
+                                                                         predict=predict,
+                                                                         true_spans=true_spans,
+                                                                         batch=batch,
+                                                                         span_cand_idxs=span_candidates_idxs)
+
+
+        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type
 
         # Calculate span label scores
         entity_span_score = self.entity_classifier(entity_span_repr)
@@ -790,7 +810,7 @@ class OneIEpp(nn.Module):
                 return scores, local_scores, span_candidate_score
 
     def forward(self, batch: Batch, last_only: bool = True):
-        span_candidate_score, span_candidates_idxs, entity_type, trigger_type = self.forward_nn(batch)
+        span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type = self.forward_nn(batch)
 
         loss_names = []
 
@@ -812,7 +832,7 @@ class OneIEpp(nn.Module):
 
         entity_loss = self.criteria(entity_type.view(-1, len(self.vocabs["entity"])),
                                        batch.entity_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
-        #something like that
+
         if not torch.isnan(entity_loss):
             loss.append(entity_loss)
             loss_names.append("entity")
@@ -820,25 +840,47 @@ class OneIEpp(nn.Module):
             print('Entity loss is NaN')
             print(batch)
 
-        """trigger_loss = self.criteria(trigger_type.view(-1, len(self.vocabs["event"])),
-                                         batch.trigger_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
-        # something like that
-        if not torch.isnan(trigger_loss):
-            loss.append(trigger_loss)
-            loss_names.append("trigger")
-        else:
-            print('Trigger loss is NaN')
-            print(batch)"""
+        if self.config.get("classify_triggers"):
+            trigger_loss = self.criteria(trigger_type.view(-1, len(self.vocabs["event"])),
+                                             batch.trigger_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
+
+            if not torch.isnan(trigger_loss):
+                loss.append(trigger_loss)
+                loss_names.append("trigger")
+            else:
+                print('Trigger loss is NaN')
+                print(batch)
 
         if self.config.get("classify_relations"):
-            if batch.relation_labels.size(0):
-                relation_loss = self.relation_loss(local_scores['relation'], batch.relation_labels)
-                if not torch.isnan(relation_loss):
-                    loss.append(relation_loss)
-                    loss_names.append("relation")
-                else:
-                    print('Relation loss is NaN')
-                    print(batch)
+
+
+            """batch_size = span_candidates_idxs.shape[0]
+            span_num = span_candidates_idxs.shape[1]
+            span_pair_src, span_pair_dest = get_pairwise_idxs_separate(span_candidates_idxs.shape[1], span_candidates_idxs.shape[1])
+            span_pair_rel_labels = []
+
+            for i in range(batch_size):
+                pos_entity_rev_dict = {}
+
+                for
+                for j in range(len(span_pair_src)):
+                        cur_rel = 0
+                        if batch.entity_labels[span_pair_src] > 0 and batch.entity_labels[span_pair_dest] > 0:
+                            cur_rel = 
+                            
+            span_rel_label_matrix = []"""
+
+            relation_type = relation_type.view(-1, relation_type.shape[-1])
+
+            relation_loss = self.relation_loss(relation_type,
+                                               batch.relation_labels[:relation_type.shape[0]])
+
+            if not torch.isnan(relation_loss):
+                loss.append(relation_loss)
+                loss_names.append("relation")
+            else:
+                print('Relation loss is NaN')
+                print(batch)
 
         if self.config.get("classify_roles"):
             if batch.role_labels.size(0):
