@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Any, Union, Set
-from random import choice
+from random import choice, randrange
 
 
 import torch
@@ -15,7 +15,11 @@ from transformers import (PreTrainedTokenizer,
 from torch.utils.data import Dataset
 
 from graph import Graph
-from util import enumerate_spans
+from util import enumerate_spans, augment
+
+from tqdm import tqdm
+
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -403,14 +407,20 @@ class IEDataset(Dataset):
     def __init__(self,
                  path: str,
                  config: Dict[str, Any],
-                 word_vocab=None):
+                 word_vocab=None,
+                 ws_tokenizer=None,
+                 ws_model=None):
         self.path = path
         self.config = config
+        self.orig_data = []
         self.data = []
         self.tensors = []
 
         #self.word_embed = word_embed
         self.word_vocab = word_vocab
+
+        self.ws_tokenizer = ws_tokenizer
+        self.ws_model = ws_model
 
         self.load(path)
 
@@ -458,6 +468,8 @@ class IEDataset(Dataset):
                                         #  }
                                          )
                 self.data.append(doc)
+                doc2 = Document.from_dict(json.loads(line))
+                self.orig_data.append(doc2)
 
         logger.info('File: {}'.format(path))
         logger.info('#Documents: {}'.format(len(self.data)))
@@ -591,8 +603,20 @@ class IEDataset(Dataset):
     def process_tokens(self,
                        sentence,
                        tokenizer: PreTrainedTokenizer,
-                       max_sent_len: int = 128):
+                       max_sent_len: int = 128,
+                       swap_prob=0.05):
         tokens = sentence.tokens
+        if self.ws_model is not None:
+            st = randrange(0, max(1, len(tokens) - 500))
+            end = st + 500
+            end = min(len(tokens), end)
+
+            tokens_orig = tokens[st:end]
+
+            tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
+
+            tokens[st:end] = tokens_aug
+        #print(tokens)
         pieces = [tokenizer.tokenize(" " * (i > 0) + token) for i, token in enumerate(tokens)]
         token_lens = [len(p) for p in pieces]
         # Remove overlength sentences
@@ -617,11 +641,12 @@ class IEDataset(Dataset):
     def process_doc(self,
                     doc: Document,
                     tokenizer: PreTrainedTokenizer,
-                    max_sent_len: int = 128):
+                    max_sent_len: int = 128,
+                    swap_prob = 0.05):
         # Convert tokens to wordpieces
         sentences = []
         for sentence in doc.sentences:
-            keep_sent = self.process_tokens(sentence, tokenizer, max_sent_len)
+            keep_sent = self.process_tokens(sentence, tokenizer, max_sent_len, swap_prob)
             if not keep_sent:
                 continue
             # print('Before', len(sentence.entities), len(sentence.relations), len(sentence.events))
@@ -635,9 +660,14 @@ class IEDataset(Dataset):
 
     def process(self,
                 tokenizer: PreTrainedTokenizer,
-                max_sent_len: int = 128):
-        for doc in self.data:
-            self.process_doc(doc, tokenizer, max_sent_len)
+                max_sent_len: int = 128,
+                swap_prob = 0.05):
+
+
+        for doc_id, _ in enumerate(self.data):
+            print("processing doc", doc_id + 1, "out of", len(self.data))
+            self.data[doc_id] = copy.deepcopy(self.orig_data[doc_id])
+            self.process_doc(self.data[doc_id], tokenizer, max_sent_len, swap_prob)
 
     def tensorize_pieces(self, doc: Document, gpu: bool = True):
         all_pieces = [sent.piece_idxs for sent in doc.sentences]

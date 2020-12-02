@@ -6,6 +6,7 @@ from nltk import word_tokenize, sent_tokenize
 from copy import deepcopy
 import torch
 from graph import Graph
+from random import random
 
 def argmax(lst):
     max_idx = -1
@@ -897,3 +898,82 @@ def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagnol: bool = False)
             idxs1.append(i)
             idxs2.append(j)
     return idxs1, idxs2
+
+def augment(tokens, mask_prob, ws_tokenizer, ws_model):
+
+    masked = set()
+
+    tokens_masked = []
+
+    for i in range(len(tokens)):
+        r = random()
+        if r < mask_prob:
+            tokens_masked.append("[MASK]")
+            masked.add(i + 1)
+        else:
+            tokens_masked.append(str.lower(tokens[i]))
+
+    #print(tokens)
+
+    #print("After masking:")
+    #print(tokens_masked)
+
+    #print(sorted(list(masked)))
+
+    #inputs = tokenizer(text, return_tensors="pt")
+
+    tokens_orig = tokens
+
+    tokens = ws_tokenizer.encode(tokens_masked, return_tensors="pt")
+
+
+
+    #print("Encoded text:")
+    ##print("|".join([tokenizer.decode(tok) for tok in inputs['input_ids'].view(-1).tolist()]))
+    #print("|".join([ws_tokenizer.decode(tok) for tok in tokens.view(-1).tolist()]))
+
+    with torch.no_grad():
+        outputs = ws_model(tokens)
+
+    logits = outputs.logits
+
+
+    logits = logits.squeeze(0)
+
+
+    """max_str = outputs.logits.argmax(dim=-1).view(-1).tolist()
+
+    for j in range(len(max_str)):
+        if j not in masked:
+            max_str[j] = tokens[0, j]
+
+    #print("Best prediction:")
+
+    #print("|".join([ws_tokenizer.decode(tok) for tok in max_str]))
+    """
+    samples = torch.multinomial((logits * 1.2).softmax(dim=-1), num_samples=1, replacement=True).T
+
+    ##print("Samples:")
+
+    #for i in range(samples.shape[0]):
+    ##print(samples[i])
+    i = 0
+    sample_list = samples[i].tolist()
+    for j in range(len(sample_list)):
+        if j not in masked:
+            sample_list[j] = tokens[0, j]
+    ##print("|".join([ws_tokenizer.decode(tok) for tok in sample_list]))
+    ##print()
+
+    res = []
+
+    for j in range(1, len(sample_list) - 1):
+        if j in masked:
+            res.append(ws_tokenizer.decode(sample_list[j]).replace(" ", ""))
+        else:
+            res.append(tokens_orig[j - 1].replace(" ", ""))
+
+    #print(res)
+    #print()
+
+    return res

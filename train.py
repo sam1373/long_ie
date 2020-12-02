@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import (LongformerModel, LongformerTokenizer,
                           RobertaTokenizer, BertConfig, AdamW,
+                          ElectraTokenizer, ElectraForMaskedLM,
                           get_linear_schedule_with_warmup)
 from model import OneIEpp, Linears, PairLinears
 from graph import Graph
@@ -100,19 +101,33 @@ tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
                                              cache_dir=config.bert_cache_dir,
                                              do_lower_case=False)
 
+wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-generator')
+wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True)
+
+
 if args.debug:
-    train_set = IEDataset(config.dev_file, config, word_vocab)
+    train_set = IEDataset(config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
     dev_set = IEDataset(config.dev_file, config, word_vocab)
     test_set = IEDataset(config.dev_file, config, word_vocab)
 else:
-    train_set = IEDataset(config.train_file, config, word_vocab)
-    dev_set = IEDataset(config.dev_file, config, word_vocab)
-    test_set = IEDataset(config.test_file, config, word_vocab)
+    train_set = IEDataset(config.train_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+    dev_set = IEDataset(config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+    test_set = IEDataset(config.test_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+
+cur_swap_prob = 0.05
 
 print('Processing data')
-train_set.process(tokenizer, max_sent_len)
+train_set.process(tokenizer, max_sent_len, cur_swap_prob)
 dev_set.process(tokenizer, max_sent_len)
 test_set.process(tokenizer, max_sent_len)
+
+"""print(train_set.data[5].sentences)
+
+for i in range(10):
+    train_set.process(tokenizer, max_sent_len, cur_swap_prob)
+    print(train_set.data[5].sentences)
+
+input()"""
 
 vocabs = generate_vocabs([train_set, dev_set, test_set])
 
@@ -289,6 +304,14 @@ writer = SummaryWriter()
 
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
+
+    if epoch > 0:
+        if epoch % 5 == 0 and cur_swap_prob < 0.3:
+            cur_swap_prob += 0.05
+            print("swap prob increased to", cur_swap_prob)
+
+        print("reprocessing train dataset")
+        train_set.process(tokenizer, max_sent_len, cur_swap_prob)
 
     if skip_train == False:
         dataloader = DataLoader(train_set,

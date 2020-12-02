@@ -84,8 +84,8 @@ class SpanTransformer(nn.Module):
 
         span_num = span_repr.shape[1]
 
-        if span_num > 350:
-            span_num = 350
+        if span_num > 300:
+            span_num = 300
             span_repr = span_repr[:, :span_num]
 
         pair_src_idxs, pair_dst_idxs = get_pairwise_idxs_separate(span_num,

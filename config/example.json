@@ -61,6 +61,6 @@
 
     "classify_entities": true,
     "classify_relations": true,
-    "classify_triggers": true,
+    "classify_triggers": false,
     "classify_roles": false
 }
