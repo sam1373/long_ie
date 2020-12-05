@@ -3,27 +3,31 @@ from torch import nn
 
 from util import get_pairwise_idxs_separate
 
+from util import RegLayer
+
 class SpanTransformer(nn.Module):
 
     def __init__(self, span_dim, vocabs, num_layers=3, final_pred_embeds=False,
                  et_dim=64, tt_dim=64, p_dropout=0.3,
-                 pair_hid_dim=64, dist_seps=(5, 10, 20, 50, 100), dist_embed_dim=64):
+                 pair_hid_dim=512, dist_seps=(5, 10, 20, 50, 100), dist_embed_dim=64,
+                 span_dim_small=256):
 
         super().__init__()
 
 
         self.span_dim = span_dim
+        self.span_dim_small = span_dim_small
         self.final_pred_embeds = final_pred_embeds
 
         self.layers = []
 
         for i in range(num_layers):
             input_dim = span_dim
-            if final_pred_embeds:
-                input_dim += et_dim + tt_dim
+            #if final_pred_embeds:
+            #    input_dim += et_dim + tt_dim
 
             trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8),
-                                        nn.Linear(input_dim, span_dim), nn.Dropout(p_dropout))
+                                        RegLayer(span_dim))
 
             self.layers.append(trans_layer)
 
@@ -40,12 +44,16 @@ class SpanTransformer(nn.Module):
         #self.coref_classifier = nn.Sequential(nn.Linear(span_dim * 2, pair_hid_dim), nn.ReLU(),
         #                                    nn.Linear(pair_hid_dim, 2))
 
-        self.rel_classifier = nn.Sequential(nn.Linear(span_dim * 2 + dist_embed_dim, pair_hid_dim), nn.ReLU(),
-                                            nn.Linear(pair_hid_dim, len(vocabs['relation'])))
+        self.before_rel_compress = nn.Sequential(nn.Linear(span_dim, span_dim * 2), RegLayer(span_dim * 2),
+                                                 nn.Linear(span_dim * 2, span_dim_small), RegLayer(span_dim_small))
+
+        self.rel_classifier = nn.Sequential(nn.Linear(span_dim_small * 2 + dist_embed_dim, pair_hid_dim),
+                                            #RegLayer(pair_hid_dim),
+                                            nn.LeakyReLU(), nn.Linear(pair_hid_dim, len(vocabs['relation'])))
 
         if self.final_pred_embeds:
-            self.et_embed_layer = nn.Embedding(len(vocabs['entity']), et_dim)
-            self.tt_embed_layer = nn.Embedding(len(vocabs['event']), tt_dim)
+            self.et_embed_layer = nn.Embedding(len(vocabs['entity']), span_dim)
+            self.tt_embed_layer = nn.Embedding(len(vocabs['event']), span_dim)
 
         self.dist_seps = dist_seps
 
@@ -65,7 +73,7 @@ class SpanTransformer(nn.Module):
                 et_embed = self.et_embed_layer(entity_type.argmax(dim=-1))
                 tt_embed = self.tt_embed_layer(trigger_type.argmax(dim=-1))
 
-                span_repr = torch.cat((span_repr, et_embed, tt_embed), dim=-1)
+                span_repr = span_repr + et_embed + tt_embed#torch.cat((span_repr, et_embed, tt_embed), dim=-1)
 
             span_repr = l(span_repr)
 
@@ -87,6 +95,8 @@ class SpanTransformer(nn.Module):
         if span_num > 300:
             span_num = 300
             span_repr = span_repr[:, :span_num]
+
+        span_repr = self.before_rel_compress(span_repr)
 
         pair_src_idxs, pair_dst_idxs = get_pairwise_idxs_separate(span_num,
                                                                 span_num,
@@ -121,17 +131,19 @@ class SpanTransformer(nn.Module):
 
         pair_src_idxs = (torch.cuda.LongTensor(pair_src_idxs)
                         .unsqueeze(0).unsqueeze(-1)
-                        .expand(batch_size, -1, self.span_dim))
+                        .expand(batch_size, -1, self.span_dim_small))
         pair_dst_idxs = (torch.cuda.LongTensor(pair_dst_idxs)
                         .unsqueeze(0).unsqueeze(-1)
-                        .expand(batch_size, -1, self.span_dim))
+                        .expand(batch_size, -1, self.span_dim_small))
 
         pair_src_repr = (span_repr
                         .gather(1, pair_src_idxs)
-                        .view(batch_size, span_num, span_num - 1, self.span_dim))
+                        .view(batch_size, span_num, span_num - 1, self.span_dim_small))
         pair_dst_repr = (span_repr
                         .gather(1, pair_dst_idxs)
-                        .view(batch_size, span_num, span_num - 1, self.span_dim))
+                        .view(batch_size, span_num, span_num - 1, self.span_dim_small))
+
+        del span_repr, pair_src_idxs, pair_dst_idxs
 
         dist_embeds = self.dist_embed(dist)
 

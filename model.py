@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 import transformers
 from data import Batch
-from util import label2onehot, elem_max, get_pairwise_idxs_separate
+from util import label2onehot, elem_max, get_pairwise_idxs_separate, RegLayer
 
 from span_transformer import SpanTransformer
 
@@ -45,6 +45,7 @@ def transpose_edge_feats(edge_feats: torch.Tensor, src_num: int, dst_num: int):
     return edge_feats.gather(0, idxs)
 
 
+
 class Linears(nn.Module):
     """Multiple linear layers with Dropout."""
     def __init__(self,
@@ -59,6 +60,7 @@ class Linears(nn.Module):
         self.activation = activation
         self.func = getattr(torch, activation)
         self.dropout = nn.Dropout(dropout_prob, inplace=True)
+        self.regs = nn.ModuleList([RegLayer(dimensions[i]) for i in range(1, len(dimensions) - 1)])
 
         self.init_parameters()
 
@@ -66,7 +68,8 @@ class Linears(nn.Module):
         for i, layer in enumerate(self.layers):
             if i > 0:
                 inputs = self.func(inputs)
-                inputs = self.dropout(inputs)
+                #inputs = self.dropout(inputs)
+                inputs = self.regs[i - 1](inputs)
             inputs = layer(inputs)
         return inputs
 
@@ -154,8 +157,8 @@ class OneIEpp(nn.Module):
 
         self.span_transformer = SpanTransformer(span_dim=span_comp_dim,
                                                 vocabs=vocabs,
-                                                final_pred_embeds=True,
-                                                num_layers=3)
+                                                final_pred_embeds=False,
+                                                num_layers=5)
 
         self.entity_classifier = entity_classifier
         self.mention_classifier = mention_classifier

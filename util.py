@@ -4,7 +4,10 @@ import glob
 import lxml.etree as et
 from nltk import word_tokenize, sent_tokenize
 from copy import deepcopy
+
 import torch
+from torch import nn
+
 from graph import Graph
 from random import random
 
@@ -736,9 +739,12 @@ def load_model(path, model, device=0, gpu=True):
 
     return model, vocabs, optimizer
 
+import matplotlib.pyplot as plt
+import numpy as np
+from highlight_text import ax_text, fig_text
 
 def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
-                  writer, global_step, prefix):
+                  writer, global_step, prefix, vocabs):
 
     tokens = batch.tokens[0]
 
@@ -807,6 +813,102 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
 
     writer.add_text(prefix+"predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix+"not_predicted", " ".join(str(not_predicted)), global_step)
+
+    all_cols = ['b', 'g', 'r', 'c', 'm', 'y', 'grey']
+
+    true_ent_text = ""
+
+    tok_dict = dict()
+
+    for (s, e, t) in true_graph.entities:
+        for i in range(s, e):
+            tok_dict[i] = t
+
+    col_list = []
+
+    cur_len = 0
+
+    for i, tok in enumerate(tokens[:500]):
+        if i not in tok_dict:
+            col = None
+        else:
+            col = all_cols[vocabs['entity'][tok_dict[i]] - 1]
+            col_list.append(col)
+        if col:
+            true_ent_text += '<'
+        true_ent_text += tok
+        cur_len += len(tok)
+        if tok[-1] == '\n':
+            cur_len = 0
+        if col:
+            true_ent_text += '>'
+        true_ent_text += ' '
+        if cur_len > 50:
+            cur_len = 0
+            true_ent_text += '\n'
+
+    fig, ax = plt.subplots()
+    plt.tight_layout()
+    plt.axis('off')
+    ax_text(x=0, y=1.,
+            s=true_ent_text,
+            color='k', highlight_colors=col_list, va='top')
+    #plt.show()
+    fig.canvas.draw()
+    #plt.show()
+    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    #img0 = img.reshape((3,) + fig.canvas.get_width_height()[::-1])
+    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    #writer.add_image(prefix+"true_entities_text", img0, global_step)
+    writer.add_image(prefix + "true_entities_text", img1, global_step, dataformats='HWC')
+
+    pred_ent_text = ""
+
+    tok_dict = dict()
+
+    for (s, e, t) in pred_graph.entities:
+        for i in range(s, e):
+            tok_dict[i] = t
+
+    col_list = []
+
+    cur_len = 0
+
+    for i, tok in enumerate(tokens[:500]):
+        col = None
+        if i in tok_dict and tok != '\n':# and len(col_list) < 50:
+            col = all_cols[vocabs['entity'][tok_dict[i]] - 1]
+            col_list.append(col)
+        if col:
+            pred_ent_text += '<'
+        pred_ent_text += tok
+        cur_len += len(tok)
+        if tok[-1] == '\n':
+            cur_len = 0
+        if col:
+            pred_ent_text += '>'
+        pred_ent_text += ' '
+        if cur_len > 50:
+            cur_len = 0
+            pred_ent_text += '\n'
+
+    fig, ax = plt.subplots()
+    plt.tight_layout()
+    plt.axis('off')
+    ax_text(x=0, y=1.,
+            s=pred_ent_text,
+            color='k', highlight_colors=col_list, va='top')
+    # plt.show()
+    fig.canvas.draw()
+    # plt.show()
+    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    # img0 = img.reshape((3,) + fig.canvas.get_width_height()[::-1])
+    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    # writer.add_image(prefix+"true_entities_text", img0, global_step)
+    writer.add_image(prefix + "pred_ent_text", img1, global_step, dataformats='HWC')
+
 
     ##############################
 
@@ -977,3 +1079,23 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
     #print()
 
     return res
+
+class RegLayer(nn.Module):
+
+    def __init__(self, hid_dim, s=0.1):
+        super(RegLayer, self).__init__()
+
+        self.norm = nn.LayerNorm(hid_dim)
+
+        self.s = 0.1
+
+    def forward(self, x):
+
+        if self.training:
+            r = torch.randn(x.shape).cuda() * self.s
+            x = x * (r + 1.)
+            del r
+
+        x = self.norm(x)
+
+        return x

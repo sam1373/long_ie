@@ -257,7 +257,7 @@ model = OneIEpp(config,
 if use_gpu:
     model.cuda(device=config.gpu_device)
 
-
+optimizer = None
 
 if skip_train == False:
     # optimizer
@@ -303,12 +303,13 @@ for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0:
-        if epoch % 5 == 0 and cur_swap_prob < 0.3:
+        if epoch % 5 == 0 and cur_swap_prob < 0.4:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
 
-        print("reprocessing train dataset")
-        train_set.process(tokenizer, max_sent_len, cur_swap_prob)
+        if cur_swap_prob > 0:
+            print("reprocessing train dataset")
+            train_set.process(tokenizer, max_sent_len, cur_swap_prob)
 
     if skip_train == False:
         dataloader = DataLoader(train_set,
@@ -372,7 +373,7 @@ for epoch in range(epoch_num):
                 pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
                 summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
-                              writer, global_step, "train_")
+                              writer, global_step, "train_", vocabs)
 
     # Dev
     dev_loader = DataLoader(dev_set,
@@ -400,7 +401,7 @@ for epoch in range(epoch_num):
         pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
         summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
-                      writer, global_step, "dev_")
+                      writer, global_step, "dev_", vocabs)
 
         pred_dev_graphs.extend(pred_graphs)
         gold_dev_graphs.extend(batch.graphs)
@@ -419,7 +420,7 @@ for epoch in range(epoch_num):
                 dev_sent_ids,
                 tokens=dev_tokens)
 
-    writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
+    #writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
 
     for k, v in dev_scores.items():
         writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
