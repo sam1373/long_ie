@@ -121,10 +121,13 @@ def sent_tokenize(text: Tuple[str, int, int],
     else:
         sentences = sent_tokenize_(text, language=language)
 
+    if text[-1] == '\n':
+        sentences[-1] = sentences[-1] + '\n'
+
     last = 0
     sentences_ = []
     for sent in sentences:
-        index = text[last:].find(sent)
+        index = text[last:].find(sent[:-1])
         if index == -1:
             print(text, sent)
         else:
@@ -148,6 +151,8 @@ def wordpunct_tokenize(text: str, language: str = 'english') -> List[str]:
     """
     if language == 'chinese':
         return [c for c in text if c.strip()]
+    if text[-1] == '\n':
+        return wordpunct_tokenize_(text) + ['\n']
     return wordpunct_tokenize_(text)
 
 
@@ -463,18 +468,20 @@ def read_sgm_file(path: str,
     # Extract sentences from chunks
     chunk_offset = 0
     sentences = []
-    for chunk in chunks:
+    for ch_id, chunk in enumerate(chunks):
         lines = chunk.split('\n')
         current_sentence = []
         start = offset = 0
         for line in lines:
             offset += len(line) + 1
             if line.strip():
-                current_sentence.append(line)
+                if line[0] != ' ':
+                    current_sentence.append(line)
             else:
                 # empty line
                 if current_sentence:
                     sentence = ' '.join(current_sentence)
+                    sentence = sentence + '\n'
                     if start + chunk_offset >= min_offset:
                         sentences.append((sentence,
                                           start + chunk_offset,
@@ -483,6 +490,8 @@ def read_sgm_file(path: str,
                 start = offset
         if current_sentence:
             sentence = ' '.join(current_sentence)
+            if ch_id < len(chunks) - 1 and chunks[ch_id + 1] == '\n':
+                sentence = sentence + '\n'
             if start + chunk_offset >= min_offset:
                 sentences.append((sentence,
                                   start + chunk_offset,
@@ -864,6 +873,9 @@ def convert(sgm_file: str,
 
 
     if not sentence_level:
+        #if len(sentence_tokens[0]) <= 3:
+        #    sentence_tokens = sentence_tokens[2:]
+        #    sentence_entities = sentence_entities[2:]
         #doc_tokens = sentence_tokens[0]
         doc_tokens = []
         for sen_id, sen in enumerate(sentence_tokens):

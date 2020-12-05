@@ -21,6 +21,8 @@ from tqdm import tqdm
 
 import copy
 
+import string
+
 logger = logging.getLogger(__name__)
 
 
@@ -606,7 +608,7 @@ class IEDataset(Dataset):
                        max_sent_len: int = 128,
                        swap_prob=0.05):
         tokens = sentence.tokens
-        if self.ws_model is not None:
+        if self.ws_model is not None and swap_prob > 0:
             st = randrange(0, max(1, len(tokens) - 500))
             end = st + 500
             end = min(len(tokens), end)
@@ -617,7 +619,16 @@ class IEDataset(Dataset):
 
             tokens[st:end] = tokens_aug
         #print(tokens)
-        pieces = [tokenizer.tokenize(" " * (i > 0) + token) for i, token in enumerate(tokens)]
+        pieces = []
+        for i, word in enumerate(tokens):
+            if word == '\n':
+                pieces.append(tokenizer.tokenize("a\n")[-1])
+                continue
+            if i > 0 and not word in string.punctuation and not tokens[i - 1] in ['-', '\'', '(']:
+                word = " " + word
+            wp = tokenizer.tokenize(word)
+            pieces.append(wp)
+        #pieces = [tokenizer.tokenize(" " * (i > 0 and not (token in [".", ","])) + token) for i, token in enumerate(tokens)]
         token_lens = [len(p) for p in pieces]
         # Remove overlength sentences
         if sum(token_lens) + 2 > max_sent_len:

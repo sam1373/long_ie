@@ -640,6 +640,9 @@ class OneIEpp(nn.Module):
         else:
             span_candidates_idxs = span_candidate_score.max(2)[1].nonzero()[:, 1]
 
+            if span_candidates_idxs.shape[-1] == 0:
+                span_candidates_idxs = torch.cuda.LongTensor([0])
+
         span_candidates_idxs = span_candidates_idxs.reshape(1, -1, 1)
 
         #bs, span_num, 1
@@ -873,7 +876,7 @@ class OneIEpp(nn.Module):
             relation_type = relation_type.view(-1, relation_type.shape[-1])
 
             relation_loss = self.relation_loss(relation_type,
-                                               batch.relation_labels[:relation_type.shape[0]])
+                                               batch.relation_labels[:relation_type.shape[0]]) * 5.
 
             if not torch.isnan(relation_loss):
                 loss.append(relation_loss)

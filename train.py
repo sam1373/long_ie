@@ -114,7 +114,7 @@ else:
     dev_set = IEDataset(config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
     test_set = IEDataset(config.test_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
 
-cur_swap_prob = 0.05
+cur_swap_prob = 0
 
 print('Processing data')
 train_set.process(tokenizer, max_sent_len, cur_swap_prob)
@@ -275,14 +275,11 @@ if skip_train == False:
 
     optimizer = AdamW(params=param_groups)
 
-    """optimizer = optim.AdaBound(model.parameters(),
-                               lr=1e-3,
-                               betas=(0.9, 0.999),
-                               final_lr=0.1,
-                               gamma=1e-3,
-                               eps=1e-8,
-                               weight_decay=0,
-                               amsbound=False)"""
+    #optimizer = optim.NovoGrad(params=param_groups)
+
+    #optimizer = optim.AdaBound(params=param_groups,
+    #                           betas=(0.9, 0.999),
+    #                           amsbound=False)
 
     schedule = get_linear_schedule_with_warmup(optimizer,
                                                num_warmup_steps=batch_num * 5,
