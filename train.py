@@ -33,7 +33,7 @@ import gc
 
 
 
-skip_train = False
+skip_train = True
 
 # configuration
 parser = ArgumentParser()
@@ -299,6 +299,8 @@ global_step = 0
 
 writer = SummaryWriter()
 
+do_test = False
+
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
@@ -367,7 +369,7 @@ for epoch in range(epoch_num):
                 # gc.collect()
 
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
-            if batch_idx % 50 == 0:
+            if batch_idx % 150 == 0:
                 result = model.predict(batch)
 
                 pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
@@ -385,7 +387,7 @@ for epoch in range(epoch_num):
 
     max_entity_pred = 0
 
-    for batch in tqdm(dev_loader, ncols=75):
+    for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
         result = model.predict(batch)
 
         #max_entity_pred = max(max_entity_pred, result[3][0])
@@ -400,7 +402,8 @@ for epoch in range(epoch_num):
 
         pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
-        summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+        if batch_idx % 8 == 0:
+            summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
                       writer, global_step, "dev_", vocabs)
 
         pred_dev_graphs.extend(pred_graphs)
@@ -432,35 +435,36 @@ for epoch in range(epoch_num):
         torch.save(state, "model.pt")
         best_dev_score = dev_scores[score_to_use]['f']
 
-    # Test
-    test_loader = DataLoader(test_set,
-                             batch_size,
-                             shuffle=False,
-                             collate_fn=test_set.collate_fn)
-    gold_test_graphs, pred_test_graphs = [], []
-    test_sent_ids, test_tokens = [], []
-    for batch in tqdm(test_loader, ncols=75):
-        result = model.predict(batch)
+    if (epoch + 1) % 5 == 0 and do_test:
+        # Test
+        test_loader = DataLoader(test_set,
+                                 batch_size,
+                                 shuffle=False,
+                                 collate_fn=test_set.collate_fn)
+        gold_test_graphs, pred_test_graphs = [], []
+        test_sent_ids, test_tokens = [], []
+        for batch in tqdm(test_loader, ncols=75):
+            result = model.predict(batch)
 
-        pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+            pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
-        pred_test_graphs.extend(pred_graphs)
-        gold_test_graphs.extend(batch.graphs)
-        test_sent_ids.extend(batch.sent_ids)
-        test_tokens.extend(batch.tokens)
+            pred_test_graphs.extend(pred_graphs)
+            gold_test_graphs.extend(batch.graphs)
+            test_sent_ids.extend(batch.sent_ids)
+            test_tokens.extend(batch.tokens)
 
-    # gold_test_graphs = [g.clean(False)
-    #                     for g in gold_test_graphs]
-    # pred_test_graphs = [g.clean(False)
-    #                     for g in pred_test_graphs]
+        # gold_test_graphs = [g.clean(False)
+        #                     for g in gold_test_graphs]
+        # pred_test_graphs = [g.clean(False)
+        #                     for g in pred_test_graphs]
 
-    print('Test')
-    test_scores = score_graphs(gold_test_graphs, pred_test_graphs, False)
-    save_result(os.path.join(output_path, 'test.result.{}.json'.format(epoch)),
-                gold_test_graphs,
-                pred_test_graphs,
-                test_sent_ids,
-                tokens=test_tokens)
+        print('Test')
+        test_scores = score_graphs(gold_test_graphs, pred_test_graphs, False)
+        save_result(os.path.join(output_path, 'test.result.{}.json'.format(epoch)),
+                    gold_test_graphs,
+                    pred_test_graphs,
+                    test_sent_ids,
+                    tokens=test_tokens)
 
     # torch.save(model, "model.pt")
 

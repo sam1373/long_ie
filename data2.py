@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Any, Union, Set
-from random import choice, randrange
+from random import choice, randrange, random
 
 
 import torch
@@ -45,6 +45,7 @@ class Batch:
     id_mention_labels: torch.LongTensor
     id_trigger_labels: torch.LongTensor
     relation_labels: torch.LongTensor
+    coref_labels: torch.LongTensor
     role_labels: torch.LongTensor
     max_entity_len: int
     max_trigger_len: int
@@ -66,6 +67,9 @@ class Batch:
     sent_ids: List[str]
     pieces_text: List[List[str]]
     token_embed_ids: List[List[int]]
+    entities_coref: List[Dict]
+    mention_to_ent_coref: List[List[int]]
+
 
     @property
     def batch_size(self):
@@ -609,15 +613,16 @@ class IEDataset(Dataset):
                        swap_prob=0.05):
         tokens = sentence.tokens
         if self.ws_model is not None and swap_prob > 0:
-            st = randrange(0, max(1, len(tokens) - 500))
-            end = st + 500
-            end = min(len(tokens), end)
+            if len(tokens) > 50 or random() < 0.2:
+                st = randrange(0, max(1, len(tokens) - 500))
+                end = st + 500
+                end = min(len(tokens), end)
 
-            tokens_orig = tokens[st:end]
+                tokens_orig = tokens[st:end]
 
-            tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
+                tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
 
-            tokens[st:end] = tokens_aug
+                tokens[st:end] = tokens_aug
         #print(tokens)
         pieces = []
         for i, word in enumerate(tokens):
@@ -922,6 +927,10 @@ class IEDataset(Dataset):
 
         token_embed_ids = []
 
+        coref_labels = []
+        entities_coref = []
+        mention_to_ent_coref = []
+
         for inst in batch:
             # graphs.append(self.inst2graph(inst))
             graphs.append(inst['graph'])
@@ -1017,6 +1026,30 @@ class IEDataset(Dataset):
             #     relation_labels.extend(x)
             relation_labels.extend(inst_relation_labels)
 
+            entity_num = len(inst['entities'])
+
+            inst_entities_coref = dict()
+            inst_mention_to_ent_coref = []
+
+            inst_coref_labels = [0] * (entity_num) * (entity_num - 1)
+            for a in range(entity_num):
+                cur_ent = inst['entities'][a].entity_id
+                if cur_ent not in inst_entities_coref:
+                    inst_entities_coref[cur_ent] = len(inst_entities_coref)
+                inst_mention_to_ent_coref.append(inst_entities_coref[cur_ent])
+
+                for b in range(a + 1, entity_num):
+                    if cur_ent == inst['entities'][b].entity_id:
+                        inst_coref_labels[b * (entity_num - 1) + a] = 1
+                        # Reverse link
+                        inst_coref_labels[a * (entity_num - 1) + b - 1] = 1
+
+            coref_labels.extend(inst_coref_labels)
+            entities_coref.append(inst_entities_coref)
+            mention_to_ent_coref.append(inst_mention_to_ent_coref)
+
+            inst['graph'].coref_matrix = inst_coref_labels
+
             # Role labels
             inst_role_labels = self.get_role_labels(inst['events'],
                                                     inst_pos_event_uids,
@@ -1053,6 +1086,8 @@ class IEDataset(Dataset):
 
             relation_labels = torch.cuda.LongTensor(relation_labels)
             role_labels = torch.cuda.LongTensor(role_labels)
+
+            coref_labels = torch.cuda.LongTensor(coref_labels)
 
             entity_span_mask = torch.cuda.LongTensor(entity_span_mask)
             trigger_span_mask = torch.cuda.LongTensor(trigger_span_mask)
@@ -1146,5 +1181,8 @@ class IEDataset(Dataset):
             graphs=graphs,
             sent_ids=sent_ids,
             pieces_text=pieces_text,
-            token_embed_ids=token_embed_ids
+            token_embed_ids=token_embed_ids,
+            coref_labels=coref_labels,
+            entities_coref=entities_coref,
+            mention_to_ent_coref=mention_to_ent_coref,
         )

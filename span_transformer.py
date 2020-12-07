@@ -9,7 +9,7 @@ class SpanTransformer(nn.Module):
 
     def __init__(self, span_dim, vocabs, num_layers=3, final_pred_embeds=False,
                  et_dim=64, tt_dim=64, p_dropout=0.3,
-                 pair_hid_dim=512, dist_seps=(5, 10, 20, 50, 100), dist_embed_dim=64,
+                 pair_hid_dim=256, dist_seps=(5, 10, 20, 50, 100), dist_embed_dim=64,
                  span_dim_small=256):
 
         super().__init__()
@@ -51,6 +51,10 @@ class SpanTransformer(nn.Module):
                                             #RegLayer(pair_hid_dim),
                                             nn.LeakyReLU(), nn.Linear(pair_hid_dim, len(vocabs['relation'])))
 
+        self.coref_classifier = nn.Sequential(nn.Linear(span_dim_small * 2 + dist_embed_dim, pair_hid_dim),
+                                            #RegLayer(pair_hid_dim),
+                                            nn.LeakyReLU(), nn.Linear(pair_hid_dim, 2))
+
         if self.final_pred_embeds:
             self.et_embed_layer = nn.Embedding(len(vocabs['entity']), span_dim)
             self.tt_embed_layer = nn.Embedding(len(vocabs['event']), span_dim)
@@ -88,7 +92,13 @@ class SpanTransformer(nn.Module):
 
             #print(true_spans.min(), true_spans.max())
 
-            span_repr = torch.gather(span_repr, 1, true_spans.unsqueeze(-1).expand(-1, -1, self.span_dim))
+            if true_spans.shape[-1] == 0:
+                span_repr = span_repr[:, 0].unsqueeze(1)
+                print(span_repr.shape)
+            else:
+                span_repr = torch.gather(span_repr, 1, true_spans.unsqueeze(-1).expand(-1, -1, self.span_dim))
+
+        #print(span_repr.shape)
 
         span_num = span_repr.shape[1]
 
@@ -103,6 +113,7 @@ class SpanTransformer(nn.Module):
                                                                 True)
 
         print(span_num, len(pair_src_idxs))
+
 
         dists = []
 
@@ -153,4 +164,6 @@ class SpanTransformer(nn.Module):
 
         relation_type = self.rel_classifier(pair_repr)
 
-        return entity_type, trigger_type, relation_type
+        coref_pred = self.coref_classifier(pair_repr)
+
+        return entity_type, trigger_type, relation_type, coref_pred

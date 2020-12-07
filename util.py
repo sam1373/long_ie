@@ -619,6 +619,7 @@ def build_information_graph(batch,
                             entity_type,
                             trigger_type,
                             relation_type,
+                            coref_preds,
                             vocabs):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
@@ -642,8 +643,16 @@ def build_information_graph(batch,
         _candidate_scores.append(candidate_scores)
 
         span_cand_idxs = span_candidates_idxs[graph_idx, :, 0].tolist()
-        en = entity_type[graph_idx].max(-1)[1].tolist()
-        tt = trigger_type[graph_idx].max(-1)[1].tolist()
+
+        coref_matrix = coref_preds[graph_idx].max(-1)[1]
+
+
+        en = entity_type[graph_idx]
+        en = en.max(-1)[1].tolist()
+
+
+        tt = trigger_type[graph_idx]
+        tt = tt.max(-1)[1].tolist()
 
         entities = []
         triggers = []
@@ -668,6 +677,8 @@ def build_information_graph(batch,
             if span_tt > 0:
                 triggers.append((start, end, trigger_itos[span_tt]))
 
+
+
         relations = []
 
         if relation_type is not None:
@@ -680,7 +691,10 @@ def build_information_graph(batch,
             for i in range(w):
                 for j in range(i+1, h):
 
-                    cur_rel = max(relation_matrix[i, j], relation_matrix[j, i]).item()
+                    cur_rel = max(relation_matrix[i, j - 1], relation_matrix[j, i]).item()
+
+                    if max(coref_matrix[i, j - 1], coref_matrix[j, i]) == 1:
+                        cur_rel = 0
 
                     if cur_rel:
 
@@ -720,7 +734,7 @@ def build_information_graph(batch,
                     triggers.append((start, end, trigger_type))
                     trigger_idx_map[idx] = len(trigger_idx_map)"""
 
-        graphs.append(Graph(entities, triggers, relations, []))
+        graphs.append(Graph(entities, triggers, relations, [], coref_preds[graph_idx].view(-1, 2).max(-1)[1]))
 
     return graphs, _candidates, _candidate_scores
 
@@ -742,6 +756,8 @@ def load_model(path, model, device=0, gpu=True):
 import matplotlib.pyplot as plt
 import numpy as np
 from highlight_text import ax_text, fig_text
+import matplotlib.colors as mcolors
+
 
 def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
                   writer, global_step, prefix, vocabs):
@@ -814,25 +830,57 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     writer.add_text(prefix+"predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix+"not_predicted", " ".join(str(not_predicted)), global_step)
 
-    all_cols = ['b', 'g', 'r', 'c', 'm', 'y', 'grey']
+    all_cols = list(mcolors.TABLEAU_COLORS) + list(mcolors.BASE_COLORS)
 
     true_ent_text = ""
 
-    tok_dict = dict()
+    tok_dict_t = dict()
+    tok_dict_idx = dict()
 
-    for (s, e, t) in true_graph.entities:
+    for idx, (s, e, t) in enumerate(true_graph.entities):
         for i in range(s, e):
-            tok_dict[i] = t
+            tok_dict_t[i] = t
+            tok_dict_idx[i] = idx
+
+    entity_num = len(true_entities)
+
+    coref_entities = [i for i in range(entity_num)]
+
+    cur_idx = 0
+
+    for i in range(entity_num):
+        for j in range(entity_num):
+
+            if i == j:
+                continue
+
+            if i > j:
+                cur_idx += 1
+                continue
+
+            if batch.coref_labels[cur_idx] == 1:
+                coref_entities[j] = min(coref_entities[j], i)
+
+            cur_idx += 1
+
+    coref_dict = dict()
+
+    for i in range(entity_num):
+        if coref_entities[i] not in coref_dict:
+            coref_dict[coref_entities[i]] = len(coref_dict)
+        coref_entities[i] = coref_dict[coref_entities[i]]
 
     col_list = []
 
     cur_len = 0
 
     for i, tok in enumerate(tokens[:500]):
-        if i not in tok_dict:
-            col = None
-        else:
-            col = all_cols[vocabs['entity'][tok_dict[i]] - 1]
+        tok = tok.replace('$', '')
+        if len(tok) == 0:
+            continue
+        col = None
+        if i in tok_dict_t and tok != '\n':  # and len(col_list) < 50:
+            col = all_cols[vocabs['entity'][tok_dict_t[i]] - 1]
             col_list.append(col)
         if col:
             true_ent_text += '<'
@@ -850,6 +898,7 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     fig, ax = plt.subplots()
     plt.tight_layout()
     plt.axis('off')
+    print(true_ent_text)
     ax_text(x=0, y=1.,
             s=true_ent_text,
             color='k', highlight_colors=col_list, va='top')
@@ -857,28 +906,105 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     fig.canvas.draw()
     #plt.show()
     img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    #img0 = img.reshape((3,) + fig.canvas.get_width_height()[::-1])
     img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-    #writer.add_image(prefix+"true_entities_text", img0, global_step)
-    writer.add_image(prefix + "true_entities_text", img1, global_step, dataformats='HWC')
+    writer.add_image(prefix + "true_entities_type", img1, global_step, dataformats='HWC')
 
-    pred_ent_text = ""
+    ###
 
-    tok_dict = dict()
-
-    for (s, e, t) in pred_graph.entities:
-        for i in range(s, e):
-            tok_dict[i] = t
+    true_ent_text = ""
 
     col_list = []
 
     cur_len = 0
 
     for i, tok in enumerate(tokens[:500]):
+        tok = tok.replace('$', '')
+        if len(tok) == 0:
+            continue
         col = None
-        if i in tok_dict and tok != '\n':# and len(col_list) < 50:
-            col = all_cols[vocabs['entity'][tok_dict[i]] - 1]
+        if i in tok_dict_idx and tok != '\n' and coref_entities[tok_dict_idx[i]] < len(all_cols):
+            col = all_cols[coref_entities[tok_dict_idx[i]]]
+            col_list.append(col)
+        if col:
+            true_ent_text += '<'
+        true_ent_text += tok
+        cur_len += len(tok)
+        if tok[-1] == '\n':
+            cur_len = 0
+        if col:
+            true_ent_text += '>'
+        true_ent_text += ' '
+        if cur_len > 50:
+            cur_len = 0
+            true_ent_text += '\n'
+
+    fig, ax = plt.subplots()
+    plt.tight_layout()
+    plt.axis('off')
+    print(true_ent_text)
+    ax_text(x=0, y=1.,
+            s=true_ent_text,
+            color='k', highlight_colors=col_list, va='top')
+    #plt.show()
+    fig.canvas.draw()
+    # plt.show()
+    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    writer.add_image(prefix + "true_entities_coref", img1, global_step, dataformats='HWC')
+
+    ###
+
+    pred_ent_text = ""
+
+    tok_dict_t = dict()
+    tok_dict_idx = dict()
+
+    for idx, (s, e, t) in enumerate(true_graph.entities):
+        for i in range(s, e):
+            tok_dict_t[i] = t
+            tok_dict_idx[i] = idx
+
+    entity_num = len(true_entities)
+
+    coref_entities = [i for i in range(entity_num)]
+
+    cur_idx = 0
+
+    for i in range(entity_num):
+        for j in range(entity_num):
+
+            if i == j:
+                continue
+
+            if i > j:
+                cur_idx += 1
+                continue
+
+            if pred_graph.coref_matrix[cur_idx] == 1:
+                coref_entities[j] = min(coref_entities[j], i)
+
+            cur_idx += 1
+
+    coref_dict = dict()
+
+    for i in range(entity_num):
+        if coref_entities[i] not in coref_dict:
+            coref_dict[coref_entities[i]] = len(coref_dict)
+        coref_entities[i] = coref_dict[coref_entities[i]]
+
+    col_list = []
+
+    cur_len = 0
+
+    for i, tok in enumerate(tokens[:500]):
+        tok = tok.replace('$', '')
+        if len(tok) == 0:
+            continue
+        col = None
+        if i in tok_dict_t and tok != '\n':# and len(col_list) < 50:
+            col = all_cols[vocabs['entity'][tok_dict_t[i]] - 1]
             col_list.append(col)
         if col:
             pred_ent_text += '<'
@@ -896,6 +1022,7 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     fig, ax = plt.subplots()
     plt.tight_layout()
     plt.axis('off')
+    print(pred_ent_text)
     ax_text(x=0, y=1.,
             s=pred_ent_text,
             color='k', highlight_colors=col_list, va='top')
@@ -907,8 +1034,51 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
     # writer.add_image(prefix+"true_entities_text", img0, global_step)
-    writer.add_image(prefix + "pred_ent_text", img1, global_step, dataformats='HWC')
+    writer.add_image(prefix + "pred_ent_type", img1, global_step, dataformats='HWC')
 
+    ###
+
+    true_ent_text = ""
+
+    col_list = []
+
+    cur_len = 0
+
+    for i, tok in enumerate(tokens[:500]):
+        tok = tok.replace('$', '')
+        if len(tok) == 0:
+            continue
+        col = None
+        if i in tok_dict_idx and tok != '\n' and coref_entities[tok_dict_idx[i]] < len(all_cols):
+            col = all_cols[coref_entities[tok_dict_idx[i]]]
+            col_list.append(col)
+        if col:
+            true_ent_text += '<'
+        true_ent_text += tok
+        cur_len += len(tok)
+        if tok[-1] == '\n':
+            cur_len = 0
+        if col:
+            true_ent_text += '>'
+        true_ent_text += ' '
+        if cur_len > 50:
+            cur_len = 0
+            true_ent_text += '\n'
+
+    fig, ax = plt.subplots()
+    plt.tight_layout()
+    plt.axis('off')
+    print(true_ent_text)
+    ax_text(x=0, y=1.,
+            s=true_ent_text,
+            color='k', highlight_colors=col_list, va='top')
+    #plt.show()
+    fig.canvas.draw()
+    # plt.show()
+    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    writer.add_image(prefix + "pred_entities_coref", img1, global_step, dataformats='HWC')
 
     ##############################
 

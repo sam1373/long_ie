@@ -158,7 +158,7 @@ class OneIEpp(nn.Module):
         self.span_transformer = SpanTransformer(span_dim=span_comp_dim,
                                                 vocabs=vocabs,
                                                 final_pred_embeds=False,
-                                                num_layers=5)
+                                                num_layers=3)
 
         self.entity_classifier = entity_classifier
         self.mention_classifier = mention_classifier
@@ -670,14 +670,14 @@ class OneIEpp(nn.Module):
 
             true_spans = true_spans.view(1, -1)
 
-        entity_type, trigger_type, relation_type = self.span_transformer(span_candidate_repr,
+        entity_type, trigger_type, relation_type, coref_pred = self.span_transformer(span_candidate_repr,
                                                                          predict=predict,
                                                                          true_spans=true_spans,
                                                                          batch=batch,
                                                                          span_cand_idxs=span_candidates_idxs)
 
 
-        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type
+        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_pred
 
         # Calculate span label scores
         entity_span_score = self.entity_classifier(entity_span_repr)
@@ -816,7 +816,7 @@ class OneIEpp(nn.Module):
                 return scores, local_scores, span_candidate_score
 
     def forward(self, batch: Batch, last_only: bool = True):
-        span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type = self.forward_nn(batch)
+        span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_pred = self.forward_nn(batch)
 
         loss_names = []
 
@@ -846,6 +846,18 @@ class OneIEpp(nn.Module):
             print('Entity loss is NaN')
             print(batch)
 
+        coref_pred = coref_pred.view(-1, coref_pred.shape[-1])
+
+        coref_loss = self.criteria(coref_pred,
+                                           batch.coref_labels[:coref_pred.shape[0]])
+
+        if not torch.isnan(coref_loss):
+            loss.append(coref_loss)
+            loss_names.append("coref")
+        else:
+            print('Coref loss is NaN')
+            print(batch)
+
         if self.config.get("classify_triggers"):
             trigger_loss = self.criteria(trigger_type.view(-1, len(self.vocabs["event"])),
                                              batch.trigger_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
@@ -857,7 +869,7 @@ class OneIEpp(nn.Module):
                 print('Trigger loss is NaN')
                 print(batch)
 
-        if self.config.get("classify_relations"):
+        if self.config.get("classify_relations") and batch.relation_labels.shape[0] > 0:
 
 
             """batch_size = span_candidates_idxs.shape[0]
