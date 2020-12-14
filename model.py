@@ -175,10 +175,10 @@ class OneIEpp(nn.Module):
         entity_weights[0] /= 100.
 
         event_weights = torch.ones(len(vocabs['event'])).cuda()
-        event_weights[0] /= 50.
+        event_weights[0] /= 3.
 
         rel_weights = torch.ones(len(vocabs['relation'])).cuda()
-        rel_weights[0] /= 5.
+        #rel_weights[0] /= 5.
 
         role_weights = torch.ones(len(vocabs['role'])).cuda()
         #role_weights[0] /= len(vocabs['role'])
@@ -823,8 +823,8 @@ class OneIEpp(nn.Module):
         loss = []
 
         span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2),
-                                             (batch.entity_labels > 0).\
-                                             #(elem_max(batch.entity_labels > 0, batch.trigger_labels > 0)).\
+                                             #(batch.entity_labels > 0).\
+                                             (elem_max(batch.entity_labels > 0, batch.trigger_labels > 0)).\
                                              type(torch.LongTensor).cuda())
 
         if not torch.isnan(span_candidate_loss):
@@ -846,20 +846,21 @@ class OneIEpp(nn.Module):
             print('Entity loss is NaN')
             print(batch)
 
-        coref_pred = coref_pred.view(-1, coref_pred.shape[-1])
+        if self.config.get("do_coref"):
+            coref_pred = coref_pred.view(-1, coref_pred.shape[-1])
 
-        coref_loss = self.criteria(coref_pred,
-                                           batch.coref_labels[:coref_pred.shape[0]])
+            coref_loss = self.span_loss(coref_pred,
+                                               batch.coref_labels[:coref_pred.shape[0]])
 
-        if not torch.isnan(coref_loss):
-            loss.append(coref_loss)
-            loss_names.append("coref")
-        else:
-            print('Coref loss is NaN')
-            print(batch)
+            if not torch.isnan(coref_loss):
+                loss.append(coref_loss)
+                loss_names.append("coref")
+            else:
+                print('Coref loss is NaN')
+                print(batch)
 
         if self.config.get("classify_triggers"):
-            trigger_loss = self.criteria(trigger_type.view(-1, len(self.vocabs["event"])),
+            trigger_loss = self.event_loss(trigger_type.view(-1, len(self.vocabs["event"])),
                                              batch.trigger_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
 
             if not torch.isnan(trigger_loss):

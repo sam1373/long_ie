@@ -475,8 +475,9 @@ def read_sgm_file(path: str,
         for line in lines:
             offset += len(line) + 1
             if line.strip():
-                if line[0] != ' ':
-                    current_sentence.append(line)
+                if line[0] == ' ':
+                    line = line + '\n'
+                current_sentence.append(line)
             else:
                 # empty line
                 if current_sentence:

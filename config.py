@@ -73,6 +73,7 @@ class Config():
         self.classify_relations = kwargs.pop("classify_relations", True)
         self.classify_triggers = kwargs.pop("classify_triggers", True)
         self.classify_roles = kwargs.pop("classify_roles", True)
+        self.do_coref = kwargs.pop("do_coref", True)
 
 
     def get(self, attr, default=None):

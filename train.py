@@ -33,7 +33,7 @@ import gc
 
 
 
-skip_train = True
+skip_train = False
 
 # configuration
 parser = ArgumentParser()
@@ -299,13 +299,13 @@ global_step = 0
 
 writer = SummaryWriter()
 
-do_test = False
+do_test = True
 
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0:
-        if epoch % 5 == 0 and cur_swap_prob < 0.4:
+        if epoch % 5 == 0 and cur_swap_prob < 0.2:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
 
@@ -368,14 +368,30 @@ for epoch in range(epoch_num):
                 # del local_scores
                 # gc.collect()
 
-        for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
-            if batch_idx % 150 == 0:
-                result = model.predict(batch)
+        if epoch % 5 == 0:
 
-                pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+            gold_train_graphs, pred_train_graphs = [], []
 
-                summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
-                              writer, global_step, "train_", vocabs)
+            for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
+                if batch_idx % 150 == 0 or batch_idx < 30:
+                    result = model.predict(batch)
+
+                    pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+
+                    pred_train_graphs.extend(pred_graphs)
+                    gold_train_graphs.extend(batch.graphs)
+
+                    if batch_idx % 150 == 0:
+                        summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+                                  writer, global_step, "train_", vocabs)
+
+            print('Train')
+            train_scores = score_graphs(gold_train_graphs, pred_train_graphs, False)
+
+            # writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
+
+            for k, v in train_scores.items():
+                writer.add_scalar('train_' + k + '_f', v['f'], global_step)
 
     # Dev
     dev_loader = DataLoader(dev_set,
@@ -385,57 +401,57 @@ for epoch in range(epoch_num):
     gold_dev_graphs, pred_dev_graphs = [], []
     dev_sent_ids, dev_tokens = [], []
 
-    max_entity_pred = 0
+    if epoch % 5 == 0:
 
-    for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
-        result = model.predict(batch)
+        for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
+            result = model.predict(batch)
 
-        #max_entity_pred = max(max_entity_pred, result[3][0])
+            #max_entity_pred = max(max_entity_pred, result[3][0])
 
-        # writer.add_image("dev_entity_span_scores", result[1]['entity'].softmax(1).unsqueeze(0).cpu(), global_step)
+            # writer.add_image("dev_entity_span_scores", result[1]['entity'].softmax(1).unsqueeze(0).cpu(), global_step)
 
-        """dev_entity_span_table = torch.cat((result[1]['entity'].softmax(1),
-                                           label2onehot(batch.entity_labels,
-                                                        entity_label_size).float()), dim=1).unsqueeze(0).cpu()
+            """dev_entity_span_table = torch.cat((result[1]['entity'].softmax(1),
+                                               label2onehot(batch.entity_labels,
+                                                            entity_label_size).float()), dim=1).unsqueeze(0).cpu()
+    
+            writer.add_image("dev_entity_span_table", dev_entity_span_table, global_step)"""
 
-        writer.add_image("dev_entity_span_table", dev_entity_span_table, global_step)"""
+            pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
-        pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+            if batch_idx % 8 == 0:
+                summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+                          writer, global_step, "dev_", vocabs)
 
-        if batch_idx % 8 == 0:
-            summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
-                      writer, global_step, "dev_", vocabs)
+            pred_dev_graphs.extend(pred_graphs)
+            gold_dev_graphs.extend(batch.graphs)
+            dev_sent_ids.extend(batch.sent_ids)
+            dev_tokens.extend(batch.tokens)
+        # gold_dev_graphs = [g.clean(False)
+        #                    for g in gold_dev_graphs]
+        # pred_dev_graphs = [g.clean(False)
+        #                    for g in pred_dev_graphs]
 
-        pred_dev_graphs.extend(pred_graphs)
-        gold_dev_graphs.extend(batch.graphs)
-        dev_sent_ids.extend(batch.sent_ids)
-        dev_tokens.extend(batch.tokens)
-    # gold_dev_graphs = [g.clean(False)
-    #                    for g in gold_dev_graphs]
-    # pred_dev_graphs = [g.clean(False)
-    #                    for g in pred_dev_graphs]
+        print('Dev')
+        dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs, False)
+        """save_result(os.path.join(output_path, 'dev.result.{}.json'.format(epoch)),
+                    gold_dev_graphs,
+                    pred_dev_graphs,
+                    dev_sent_ids,
+                    tokens=dev_tokens)"""
 
-    print('Dev')
-    dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs, False)
-    save_result(os.path.join(output_path, 'dev.result.{}.json'.format(epoch)),
-                gold_dev_graphs,
-                pred_dev_graphs,
-                dev_sent_ids,
-                tokens=dev_tokens)
+        #writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
 
-    #writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
+        for k, v in dev_scores.items():
+            writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
 
-    for k, v in dev_scores.items():
-        writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
+        score_to_use = "entity"
 
-    score_to_use = "entity"
+        if dev_scores[score_to_use]['f'] > best_dev_score:
+            print('Saving best dev model by ' + score_to_use)
+            torch.save(state, "model.pt")
+            best_dev_score = dev_scores[score_to_use]['f']
 
-    if dev_scores[score_to_use]['f'] > best_dev_score:
-        print('Saving best dev model by ' + score_to_use)
-        torch.save(state, "model.pt")
-        best_dev_score = dev_scores[score_to_use]['f']
-
-    if (epoch + 1) % 5 == 0 and do_test:
+    if epoch % 5 == 0 and do_test:
         # Test
         test_loader = DataLoader(test_set,
                                  batch_size,
@@ -460,11 +476,11 @@ for epoch in range(epoch_num):
 
         print('Test')
         test_scores = score_graphs(gold_test_graphs, pred_test_graphs, False)
-        save_result(os.path.join(output_path, 'test.result.{}.json'.format(epoch)),
+        """save_result(os.path.join(output_path, 'test.result.{}.json'.format(epoch)),
                     gold_test_graphs,
                     pred_test_graphs,
                     test_sent_ids,
-                    tokens=test_tokens)
+                    tokens=test_tokens)"""
 
     # torch.save(model, "model.pt")
 

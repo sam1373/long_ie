@@ -620,7 +620,11 @@ class IEDataset(Dataset):
 
                 tokens_orig = tokens[st:end]
 
+                #print(tokens_orig)
+
                 tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
+
+                #print(tokens_aug)
 
                 tokens[st:end] = tokens_aug
         #print(tokens)
@@ -677,11 +681,10 @@ class IEDataset(Dataset):
     def process(self,
                 tokenizer: PreTrainedTokenizer,
                 max_sent_len: int = 128,
-                swap_prob = 0.05):
+                swap_prob = 0):
 
-
-        for doc_id, _ in enumerate(self.data):
-            print("processing doc", doc_id + 1, "out of", len(self.data))
+        for doc_id, _ in enumerate(tqdm(self.data)):
+            #print("processing doc", doc_id + 1, "out of", len(self.data))
             self.data[doc_id] = copy.deepcopy(self.orig_data[doc_id])
             self.process_doc(self.data[doc_id], tokenizer, max_sent_len, swap_prob)
 

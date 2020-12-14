@@ -142,7 +142,7 @@ def score_graphs(gold_graphs, pred_graphs,
 
     scores = {
         'entity': {'prec': entity_prec, 'rec': entity_rec, 'f': entity_f},
-        'mention': {'prec': mention_prec, 'rec': mention_rec, 'f': mention_f},
+        #'mention': {'prec': mention_prec, 'rec': mention_rec, 'f': mention_f},
         'trigger': {'prec': trigger_prec, 'rec': trigger_rec, 'f': trigger_f},
         'trigger_id': {'prec': trigger_id_prec, 'rec': trigger_id_rec,
                        'f': trigger_id_f},

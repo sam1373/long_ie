@@ -644,12 +644,13 @@ def build_information_graph(batch,
 
         span_cand_idxs = span_candidates_idxs[graph_idx, :, 0].tolist()
 
-        coref_matrix = coref_preds[graph_idx].max(-1)[1]
-
+        coref_matrix = None
+        if coref_preds is not None:
+            coref_matrix = coref_preds[graph_idx].max(-1)[1]
 
         en = entity_type[graph_idx]
-        en = en.max(-1)[1].tolist()
-
+        #en = en.max(-1)[1].tolist()
+        #entity_num = en.shape[-2]
 
         tt = trigger_type[graph_idx]
         tt = tt.max(-1)[1].tolist()
@@ -660,11 +661,35 @@ def build_information_graph(batch,
         cur_ents = 0
         pos_ent_num = []
 
+        coref_cur_idx = 0
+
         for i, idx in enumerate(span_cand_idxs):
+
+            cur_scores = en[i]
+
+
+            if 0 and cur_scores.max(-1)[1].item() > 0 and i < coref_matrix.shape[0]:
+
+                #print(len(span_cand_idxs))
+
+                for j in range(min(coref_matrix.shape[0], len(span_cand_idxs))):
+
+                    #if en[j].max(-1)[1] == 0:
+                    #    continue
+
+                    if i == j:
+                        continue
+
+                    #print(i, j)
+
+                    if coref_matrix[i, j - int(j > i)]:
+                        cur_scores += en[j]
+
+                    coref_cur_idx += 1
 
             start, end = batch.entity_offsets[idx]
 
-            span_et = en[i]
+            span_et = cur_scores.max(-1)[1].item()
             span_tt = tt[i]
 
             if span_et > 0:
@@ -693,8 +718,9 @@ def build_information_graph(batch,
 
                     cur_rel = max(relation_matrix[i, j - 1], relation_matrix[j, i]).item()
 
-                    if max(coref_matrix[i, j - 1], coref_matrix[j, i]) == 1:
-                        cur_rel = 0
+                    if coref_matrix is not None:
+                        if max(coref_matrix[i, j - 1], coref_matrix[j, i]) == 1:
+                            cur_rel = 0
 
                     if cur_rel:
 
@@ -734,7 +760,12 @@ def build_information_graph(batch,
                     triggers.append((start, end, trigger_type))
                     trigger_idx_map[idx] = len(trigger_idx_map)"""
 
-        graphs.append(Graph(entities, triggers, relations, [], coref_preds[graph_idx].view(-1, 2).max(-1)[1]))
+        if coref_preds is not None:
+            coref_preds_cur = coref_preds[graph_idx].view(-1, 2).max(-1)[1]
+        else:
+            coref_preds_cur = None
+
+        graphs.append(Graph(entities, triggers, relations, [], coref_preds_cur))
 
     return graphs, _candidates, _candidate_scores
 
@@ -848,6 +879,8 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
 
     cur_idx = 0
 
+    print(entity_num, entity_num * (entity_num - 1), batch.coref_labels.shape)
+
     for i in range(entity_num):
         for j in range(entity_num):
 
@@ -857,6 +890,9 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
             if i > j:
                 cur_idx += 1
                 continue
+
+            if cur_idx >= batch.coref_labels.shape[0]:
+                break
 
             if batch.coref_labels[cur_idx] == 1:
                 coref_entities[j] = min(coref_entities[j], i)
@@ -869,6 +905,23 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
         if coref_entities[i] not in coref_dict:
             coref_dict[coref_entities[i]] = len(coref_dict)
         coref_entities[i] = coref_dict[coref_entities[i]]
+
+    total_coref_ent = max(coref_entities, default=-1)
+
+    true_coref_text = ""
+
+    for i in range(total_coref_ent + 1):
+        cur_corefd = 0
+        coref_ents = []
+        for j in range(entity_num):
+            if coref_entities[j] == i:
+                cur_corefd += 1
+                s, e, _ = true_graph.entities[j]
+                coref_ents.append(("|".join(tokens[s:e]), s, e))
+        if cur_corefd > 1:
+            true_coref_text += " ".join(str(coref_ents)) + "\n"
+
+    writer.add_text(prefix + "true_coref_text", true_coref_text, global_step)
 
     col_list = []
 
@@ -898,7 +951,7 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     fig, ax = plt.subplots()
     plt.tight_layout()
     plt.axis('off')
-    print(true_ent_text)
+    #print(true_ent_text)
     ax_text(x=0, y=1.,
             s=true_ent_text,
             color='k', highlight_colors=col_list, va='top')
@@ -942,7 +995,7 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     fig, ax = plt.subplots()
     plt.tight_layout()
     plt.axis('off')
-    print(true_ent_text)
+    #print(true_ent_text)
     ax_text(x=0, y=1.,
             s=true_ent_text,
             color='k', highlight_colors=col_list, va='top')
@@ -961,38 +1014,60 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     tok_dict_t = dict()
     tok_dict_idx = dict()
 
-    for idx, (s, e, t) in enumerate(true_graph.entities):
+    for idx, (s, e, t) in enumerate(pred_graph.entities):
         for i in range(s, e):
             tok_dict_t[i] = t
             tok_dict_idx[i] = idx
 
-    entity_num = len(true_entities)
+    entity_num = len(predicted_entities)
 
     coref_entities = [i for i in range(entity_num)]
 
     cur_idx = 0
 
-    for i in range(entity_num):
-        for j in range(entity_num):
+    if pred_graph.coref_matrix is not None:
 
-            if i == j:
-                continue
+        for i in range(entity_num):
+            for j in range(entity_num):
 
-            if i > j:
+                if i == j:
+                    continue
+
+                if i > j:
+                    cur_idx += 1
+                    continue
+
+                if cur_idx >= batch.coref_labels.shape[0]:
+                    break
+
+                if pred_graph.coref_matrix[cur_idx] == 1:
+                    coref_entities[j] = min(coref_entities[j], i)
+
                 cur_idx += 1
-                continue
 
-            if pred_graph.coref_matrix[cur_idx] == 1:
-                coref_entities[j] = min(coref_entities[j], i)
+        coref_dict = dict()
 
-            cur_idx += 1
+        for i in range(entity_num):
+            if coref_entities[i] not in coref_dict:
+                coref_dict[coref_entities[i]] = len(coref_dict)
+            coref_entities[i] = coref_dict[coref_entities[i]]
 
-    coref_dict = dict()
+        pred_coref_ent = max(coref_entities, default=-1)
 
-    for i in range(entity_num):
-        if coref_entities[i] not in coref_dict:
-            coref_dict[coref_entities[i]] = len(coref_dict)
-        coref_entities[i] = coref_dict[coref_entities[i]]
+        pred_coref_text = ""
+
+        for i in range(pred_coref_ent + 1):
+            cur_corefd = 0
+            coref_ents = []
+            for j in range(entity_num):
+                if coref_entities[j] == i:
+                    cur_corefd += 1
+                    s, e, _ = pred_graph.entities[j]
+                    coref_ents.append(("|".join(tokens[s:e]), s, e))
+            if cur_corefd > 1:
+                pred_coref_text += " ".join(str(coref_ents)) + "\n"
+
+        writer.add_text(prefix + "pred_coref_text", pred_coref_text, global_step)
 
     col_list = []
 
@@ -1022,7 +1097,7 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
     fig, ax = plt.subplots()
     plt.tight_layout()
     plt.axis('off')
-    print(pred_ent_text)
+    #print(pred_ent_text)
     ax_text(x=0, y=1.,
             s=pred_ent_text,
             color='k', highlight_colors=col_list, va='top')
@@ -1038,47 +1113,48 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
 
     ###
 
-    true_ent_text = ""
+    if pred_graph.coref_matrix is not None:
+        true_ent_text = ""
 
-    col_list = []
+        col_list = []
 
-    cur_len = 0
+        cur_len = 0
 
-    for i, tok in enumerate(tokens[:500]):
-        tok = tok.replace('$', '')
-        if len(tok) == 0:
-            continue
-        col = None
-        if i in tok_dict_idx and tok != '\n' and coref_entities[tok_dict_idx[i]] < len(all_cols):
-            col = all_cols[coref_entities[tok_dict_idx[i]]]
-            col_list.append(col)
-        if col:
-            true_ent_text += '<'
-        true_ent_text += tok
-        cur_len += len(tok)
-        if tok[-1] == '\n':
-            cur_len = 0
-        if col:
-            true_ent_text += '>'
-        true_ent_text += ' '
-        if cur_len > 50:
-            cur_len = 0
-            true_ent_text += '\n'
+        for i, tok in enumerate(tokens[:500]):
+            tok = tok.replace('$', '')
+            if len(tok) == 0:
+                continue
+            col = None
+            if i in tok_dict_idx and tok != '\n' and coref_entities[tok_dict_idx[i]] < len(all_cols):
+                col = all_cols[coref_entities[tok_dict_idx[i]]]
+                col_list.append(col)
+            if col:
+                true_ent_text += '<'
+            true_ent_text += tok
+            cur_len += len(tok)
+            if tok[-1] == '\n':
+                cur_len = 0
+            if col:
+                true_ent_text += '>'
+            true_ent_text += ' '
+            if cur_len > 50:
+                cur_len = 0
+                true_ent_text += '\n'
 
-    fig, ax = plt.subplots()
-    plt.tight_layout()
-    plt.axis('off')
-    print(true_ent_text)
-    ax_text(x=0, y=1.,
-            s=true_ent_text,
-            color='k', highlight_colors=col_list, va='top')
-    #plt.show()
-    fig.canvas.draw()
-    # plt.show()
-    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        fig, ax = plt.subplots()
+        plt.tight_layout()
+        plt.axis('off')
+        #print(true_ent_text)
+        ax_text(x=0, y=1.,
+                s=true_ent_text,
+                color='k', highlight_colors=col_list, va='top')
+        #plt.show()
+        fig.canvas.draw()
+        # plt.show()
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-    writer.add_image(prefix + "pred_entities_coref", img1, global_step, dataformats='HWC')
+        writer.add_image(prefix + "pred_entities_coref", img1, global_step, dataformats='HWC')
 
     ##############################
 
@@ -1115,6 +1191,8 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores,
 
     writer.add_text(prefix + "rels_predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix + "rels_not_predicted", " ".join(str(not_predicted)), global_step)
+
+    plt.close('all')
 
 
 def load_word_embed(path: str,
@@ -1252,20 +1330,28 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
 
 class RegLayer(nn.Module):
 
-    def __init__(self, hid_dim, s=0.1):
+    def __init__(self, hid_dim, s=0.1, d=0.3):
         super(RegLayer, self).__init__()
 
-        self.norm = nn.LayerNorm(hid_dim)
+        self.drop = nn.Dropout(d)
+        #self.norm = nn.LayerNorm(hid_dim)
+        self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
 
-        self.s = 0.1
+        self.s = s
 
     def forward(self, x):
 
-        if self.training:
+        """if self.training:
             r = torch.randn(x.shape).cuda() * self.s
             x = x * (r + 1.)
-            del r
+            del r"""
 
+        x = self.drop(x)
+
+        #print(x.shape)
+        x = x.transpose(-2, -1)
+        #print(x.shape)
         x = self.norm(x)
+        x = x.transpose(-2, -1)
 
         return x
