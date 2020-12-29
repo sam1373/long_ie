@@ -15,6 +15,8 @@ from util import label2onehot, elem_max, get_pairwise_idxs_separate, RegLayer
 
 from span_transformer import SpanTransformer
 
+import torch_scatter
+
 logger = logging.getLogger(__name__)
 
 
@@ -140,7 +142,7 @@ class OneIEpp(nn.Module):
                  word_embed:nn.Module = None,
                  gnn: nn.Module = None,
                  extra_bert: int = 0,
-                 span_repr_dim: int = 512,
+                 span_repr_dim: int = None,
                  span_comp_dim: int = 512,
                  ):
         super().__init__()
@@ -175,7 +177,7 @@ class OneIEpp(nn.Module):
         entity_weights[0] /= 100.
 
         event_weights = torch.ones(len(vocabs['event'])).cuda()
-        event_weights[0] /= 3.
+        #event_weights[0] /= 3.
 
         rel_weights = torch.ones(len(vocabs['relation'])).cuda()
         #rel_weights[0] /= 5.
@@ -670,14 +672,14 @@ class OneIEpp(nn.Module):
 
             true_spans = true_spans.view(1, -1)
 
-        entity_type, trigger_type, relation_type, coref_pred = self.span_transformer(span_candidate_repr,
+        entity_type, trigger_type, relation_type, coref_embeds = self.span_transformer(span_candidate_repr,
                                                                          predict=predict,
                                                                          true_spans=true_spans,
                                                                          batch=batch,
                                                                          span_cand_idxs=span_candidates_idxs)
 
 
-        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_pred
+        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds
 
         # Calculate span label scores
         entity_span_score = self.entity_classifier(entity_span_repr)
@@ -816,16 +818,21 @@ class OneIEpp(nn.Module):
                 return scores, local_scores, span_candidate_score
 
     def forward(self, batch: Batch, last_only: bool = True):
-        span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_pred = self.forward_nn(batch)
+        span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
         loss_names = []
 
         loss = []
 
-        span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2),
-                                             #(batch.entity_labels > 0).\
-                                             (elem_max(batch.entity_labels > 0, batch.trigger_labels > 0)).\
-                                             type(torch.LongTensor).cuda())
+        if self.config.get("classify_triggers"):
+            span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2),
+                                                 (elem_max(batch.entity_labels > 0, batch.trigger_labels > 0)).\
+                                                 type(torch.LongTensor).cuda())
+
+        else:
+            span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2),
+                                                 (batch.entity_labels > 0).\
+                                                 type(torch.LongTensor).cuda())
 
         if not torch.isnan(span_candidate_loss):
             loss.append(span_candidate_loss)
@@ -847,14 +854,41 @@ class OneIEpp(nn.Module):
             print(batch)
 
         if self.config.get("do_coref"):
-            coref_pred = coref_pred.view(-1, coref_pred.shape[-1])
 
-            coref_loss = self.span_loss(coref_pred,
-                                               batch.coref_labels[:coref_pred.shape[0]])
+            #process coref_embeds
+            #
+            # get avg for clusters
+            # get avg between clusters
+            # get dist losses
+            # also produce predictions
 
-            if not torch.isnan(coref_loss):
-                loss.append(coref_loss)
-                loss_names.append("coref")
+            #TODO
+            coref_true_cluster_means = torch_scatter.scatter_mean(coref_embeds, batch.mention_to_ent_coref, dim=1)
+
+            #coref_true_cluster_scattered = torch.zeros(coref_embeds.shape).cuda()
+
+            coref_true_cluster_aligned = torch.gather(coref_true_cluster_means, 1, batch.mention_to_ent_coref.unsqueeze(-1).expand(-1, -1, 128))
+
+            dist_to_true_cluster_center = torch.norm(coref_embeds - coref_true_cluster_aligned, dim=-1)
+
+            avg_of_clusters = torch.mean(coref_true_cluster_means, dim=-2)
+
+            dist_to_avg_of_clusters = torch.norm(coref_true_cluster_means - avg_of_clusters, dim=-1)
+
+            coref_loss_attract = dist_to_true_cluster_center.mean()
+            coref_loss_repel = -dist_to_avg_of_clusters.mean()
+            #coref_cluster_loss = dist_to_true_cluster_center.mean() - dist_to_avg_of_clusters.mean()
+
+            #coref_pred = coref_pred.view(-1, coref_pred.shape[-1])
+
+            #coref_loss = self.span_loss(coref_pred,
+            #                                   batch.coref_labels[:coref_pred.shape[0]]) * 10.
+
+            if not torch.isnan(coref_loss_attract):
+                loss.append(coref_loss_attract)
+                loss_names.append("coref_attract")
+                loss.append(coref_loss_repel)
+                loss_names.append("coref_repel")
             else:
                 print('Coref loss is NaN')
                 print(batch)

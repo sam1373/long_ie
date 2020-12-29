@@ -60,8 +60,8 @@
     "use_extra_word_embed": false,
 
     "classify_entities": true,
-    "classify_relations": true,
+    "classify_relations": false,
     "classify_triggers": true,
     "classify_roles": false,
-    "do_coref": false
+    "do_coref": true
 }

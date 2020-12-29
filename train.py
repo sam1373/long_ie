@@ -305,7 +305,7 @@ for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0:
-        if epoch % 5 == 0 and cur_swap_prob < 0.2:
+        if epoch % 5 == 0 and cur_swap_prob < 0.4:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
 
@@ -378,11 +378,13 @@ for epoch in range(epoch_num):
 
                     pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
+                    coref_embeds = result[-1]
+
                     pred_train_graphs.extend(pred_graphs)
                     gold_train_graphs.extend(batch.graphs)
 
                     if batch_idx % 150 == 0:
-                        summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+                        summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0], coref_embeds[0],
                                   writer, global_step, "train_", vocabs)
 
             print('Train')
@@ -406,6 +408,8 @@ for epoch in range(epoch_num):
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
             result = model.predict(batch)
 
+            coref_embeds = result[-1]
+
             #max_entity_pred = max(max_entity_pred, result[3][0])
 
             # writer.add_image("dev_entity_span_scores", result[1]['entity'].softmax(1).unsqueeze(0).cpu(), global_step)
@@ -419,7 +423,7 @@ for epoch in range(epoch_num):
             pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
 
             if batch_idx % 8 == 0:
-                summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0],
+                summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0], coref_embeds[0],
                           writer, global_step, "dev_", vocabs)
 
             pred_dev_graphs.extend(pred_graphs)

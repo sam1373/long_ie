@@ -764,10 +764,10 @@ class IEDataset(Dataset):
         }
         instance['entity_uids'] = {(x.start, x.end): x.uid
                                    for x in sentence.entities}
-        instance['mention_labels'] = {
+        """instance['mention_labels'] = {
             (x.start, x.end): mention_type_stoi[x.mention_type]
             for x in sentence.entities
-        }
+        }"""
         instance['event_labels'] = {
             (x.start, x.end): event_type_stoi[x.get_type(event_type_level)]
             for x in sentence.events
@@ -968,15 +968,15 @@ class IEDataset(Dataset):
                 else:
                     entity_labels.append(
                         inst['entity_labels'].get((start, end), 0))
-                    mention_labels.append(
-                        inst['mention_labels'].get((start, end), -100))
+                    mention_labels.append(-100)
+                        #inst['mention_labels'].get((start, end), -100))
                     if (start, end) in inst['entity_labels']:
                         inst_pos_entity_idxs.append(offset_idx)
                         inst_pos_entity_offsets.append((start, end))
                         inst_pos_entity_uids.append(
                             inst['entity_uids'][(start, end)])
                         id_entity_labels.append(inst['entity_labels'][(start, end)])
-                        id_mention_labels.append(inst['mention_labels'][(start, end)])
+                        id_mention_labels.append(-100)#inst['mention_labels'][(start, end)])
                         # Gold labels to GNN
                         inst_entity_labels_sep.append(inst['entity_labels'][(start, end)])
                     else:
@@ -1106,6 +1106,8 @@ class IEDataset(Dataset):
                                    for x in relation_labels_sep]
             role_labels_sep = [torch.cuda.LongTensor(x)
                                for x in role_labels_sep]
+
+            mention_to_ent_coref = torch.cuda.LongTensor(mention_to_ent_coref)
         else:
             pieces = torch.LongTensor(pieces)
             attention_mask = torch.FloatTensor(attention_mask)

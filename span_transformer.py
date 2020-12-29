@@ -1,16 +1,19 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from util import get_pairwise_idxs_separate
 
 from util import RegLayer
+
+import math
 
 class SpanTransformer(nn.Module):
 
     def __init__(self, span_dim, vocabs, num_layers=3, final_pred_embeds=False,
                  et_dim=64, tt_dim=64, p_dropout=0.3, single_hid_dim=1024,
                  pair_hid_dim=256, dist_seps=(5, 10, 20, 50, 100), dist_embed_dim=64,
-                 span_dim_small=256):
+                 span_dim_small=128, coref_embed_dim=128):
 
         super().__init__()
 
@@ -26,8 +29,8 @@ class SpanTransformer(nn.Module):
             #if final_pred_embeds:
             #    input_dim += et_dim + tt_dim
 
-            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8),
-                                        RegLayer(span_dim))
+            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=4))
+                                        ##RegLayer(span_dim))
 
             self.layers.append(trans_layer)
 
@@ -49,15 +52,20 @@ class SpanTransformer(nn.Module):
         self.before_rel_compress = nn.Sequential(nn.Linear(span_dim, span_dim * 2), RegLayer(span_dim * 2),
                                                  nn.Linear(span_dim * 2, span_dim_small), RegLayer(span_dim_small))
 
-
+        self.rel_q_linear = nn.Linear(span_dim, span_dim_small)
+        self.rel_k_linear = nn.Linear(span_dim, span_dim_small)
+        self.rel_attn_heads = 8
 
         self.rel_classifier = nn.Sequential(nn.Linear(span_dim_small * 2 + dist_embed_dim, pair_hid_dim),
                                             nn.LayerNorm(pair_hid_dim),#egLayer(pair_hid_dim),
                                             nn.LeakyReLU(), nn.Linear(pair_hid_dim, len(vocabs['relation'])))
 
-        self.coref_classifier = nn.Sequential(nn.Linear(span_dim_small + dist_embed_dim, pair_hid_dim),
-                                            nn.LayerNorm(pair_hid_dim),#RegLayer(pair_hid_dim),
-                                            nn.LeakyReLU(), nn.Linear(pair_hid_dim, 2))
+        self.coref_embed = nn.Sequential(nn.Linear(span_dim, span_dim * 2), RegLayer(span_dim * 2), nn.LeakyReLU(),
+                                         nn.Linear(span_dim * 2, coref_embed_dim))
+
+        #self.coref_classifier = nn.Sequential(nn.Linear(span_dim_small * 2 + dist_embed_dim, pair_hid_dim),
+        #                                    nn.LayerNorm(pair_hid_dim),#RegLayer(pair_hid_dim),
+        #                                    nn.LeakyReLU(), nn.Linear(pair_hid_dim, 2))
 
         if self.final_pred_embeds:
             self.et_embed_layer = nn.Embedding(len(vocabs['entity']), span_dim)
@@ -111,12 +119,50 @@ class SpanTransformer(nn.Module):
 
         span_num = span_repr.shape[1]
 
-        if span_num > 300:
+        """if span_num > 300:
             span_num = 300
             span_repr = span_repr[:, :span_num]
-            #span_repr_orig = span_repr_orig[:, :span_num]
+            #span_repr_orig = span_repr_orig[:, :span_num]"""
 
-        span_repr = self.before_rel_compress(span_repr)
+        #special embedding method
+
+        coref_embeds = self.coref_embed(span_repr)
+
+        ###
+
+        return entity_type, trigger_type, None, coref_embeds
+
+        #attn_based pair stuff
+
+        """rel_q = self.rel_q_linear(span_repr)
+        rel_k = self.rel_k_linear(span_repr)
+
+        sub_dim = self.span_dim_small // self.rel_attn_heads
+
+        rel_q = rel_q.reshape(batch_size, span_num, self.rel_attn_heads, sub_dim) \
+                .permute(0, 2, 1, 3) \
+                .reshape(batch_size * self.rel_attn_heads, span_num, sub_dim)
+
+        rel_k = rel_k.reshape(batch_size, span_num, self.rel_attn_heads, sub_dim) \
+            .permute(0, 2, 1, 3) \
+            .reshape(batch_size * self.rel_attn_heads, span_num, sub_dim)
+
+        dk = rel_q.size()[-1]
+        scores = rel_q.matmul(rel_k.transpose(-2, -1)) / math.sqrt(dk)
+
+        attention = F.softmax(scores, dim=-1)
+        attn_sum = attention.reshape(batch_size, self.rel_attn_heads, span_num, span_num).sum(dim=1)
+
+        print(rel_q.shape, rel_k.shape, scores.shape, attn_sum.shape)
+
+        print(scores.min(), scores.max(), scores.mean(), scores.var())
+        print(attn_sum.min(), attn_sum.max(), attn_sum.mean(), attn_sum.var())
+
+        return entity_type, trigger_type, None, None"""
+
+        ###old rel stuff below this
+
+        """span_repr = self.before_rel_compress(span_repr)
 
         pair_src_idxs, pair_dst_idxs = get_pairwise_idxs_separate(span_num,
                                                                 span_num,
@@ -176,9 +222,9 @@ class SpanTransformer(nn.Module):
 
         pair_repr = torch.cat((pair_dst_repr, pair_src_repr, dist_embeds), dim=-1)
 
-        relation_type = self.rel_classifier(pair_repr)
+        #relation_type = self.rel_classifier(pair_repr)
 
-        coref_pred = None
-        #coref_pred = self.coref_classifier(pair_repr)
+        #coref_pred = None
+        coref_pred = self.coref_classifier(pair_repr)
 
-        return entity_type, trigger_type, relation_type, coref_pred
+        return entity_type, trigger_type, None, coref_pred"""
