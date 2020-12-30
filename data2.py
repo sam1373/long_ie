@@ -69,7 +69,9 @@ class Batch:
     token_embed_ids: List[List[int]]
     entities_coref: List[Dict]
     mention_to_ent_coref: List[List[int]]
-
+    is_start: torch.LongTensor
+    len_from_here: torch.LongTensor
+    type_from_here: torch.LongTensor
 
     @property
     def batch_size(self):
@@ -934,6 +936,10 @@ class IEDataset(Dataset):
         entities_coref = []
         mention_to_ent_coref = []
 
+        is_start = []
+        len_from_here = []
+        type_from_here = []
+
         for inst in batch:
             # graphs.append(self.inst2graph(inst))
             graphs.append(inst['graph'])
@@ -960,6 +966,11 @@ class IEDataset(Dataset):
             inst_neg_entity_offsets = []
             inst_entity_labels_sep, inst_trigger_labels_sep = [], []
             int_relation_labels_sep, inst_role_labels_sep = [], []
+
+            inst_is_start = [0 for i in range(inst['token_num'])]
+            inst_len_from_here = [0 for i in range(inst['token_num'])]
+            inst_type_from_here = [0 for i in range(inst['token_num'])]
+
             for offset_idx, (start, end) in enumerate(entity_offsets):
                 if end > inst['token_num']:
                     entity_labels.append(-100)
@@ -979,6 +990,21 @@ class IEDataset(Dataset):
                         id_mention_labels.append(-100)#inst['mention_labels'][(start, end)])
                         # Gold labels to GNN
                         inst_entity_labels_sep.append(inst['entity_labels'][(start, end)])
+
+                        overlaps_longer = False
+                        for j in range(start + 1, end):
+                            if inst_is_start[j]:
+                                if inst_len_from_here[j] > end - start:
+                                    overlaps_longer = True
+                                else:
+                                    inst_is_start[j] = 0
+                                    inst_len_from_here[j] = 0
+                                    inst_type_from_here[j] = 0
+                        if not overlaps_longer:
+                            inst_is_start[start] = 1
+                            inst_len_from_here[start] = max(inst_len_from_here[start], end - start)
+                            inst_type_from_here[start] = inst['entity_labels'][(start, end)]
+
                     else:
                         inst_neg_entity_idxs.append(offset_idx)
                         inst_neg_entity_offsets.append((start, end))
@@ -986,6 +1012,11 @@ class IEDataset(Dataset):
             # TODO: overlength entity causes the following issue
             # if len(inst_pos_entity_offsets) != inst['entity_num']:
             #     print(inst)
+
+            is_start.append(inst_is_start)
+            len_from_here.append(inst_len_from_here)
+            type_from_here.append(inst_type_from_here)
+
             inst_pos_entity_idxs += [0] * (max_entity_num - inst['entity_num'])
             pos_entity_idxs.append(inst_pos_entity_idxs)
             pos_entity_offsets.append(inst_pos_entity_offsets)
@@ -1108,6 +1139,10 @@ class IEDataset(Dataset):
                                for x in role_labels_sep]
 
             mention_to_ent_coref = torch.cuda.LongTensor(mention_to_ent_coref)
+
+            is_start = torch.cuda.LongTensor(is_start)
+            len_from_here = torch.cuda.LongTensor(len_from_here)
+            type_from_here = torch.cuda.LongTensor(type_from_here)
         else:
             pieces = torch.LongTensor(pieces)
             attention_mask = torch.FloatTensor(attention_mask)
@@ -1190,4 +1225,7 @@ class IEDataset(Dataset):
             coref_labels=coref_labels,
             entities_coref=entities_coref,
             mention_to_ent_coref=mention_to_ent_coref,
+            is_start=is_start,
+            len_from_here=len_from_here,
+            type_from_here=type_from_here
         )

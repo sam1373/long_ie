@@ -101,7 +101,7 @@ class SpanTransformer(nn.Module):
         entity_type = self.linear_entity_type(span_repr)
         trigger_type = self.linear_trigger_type(span_repr)
 
-        #return entity_type, trigger_type, None, None
+        return entity_type, trigger_type, None, None
 
         if predict == False:
 

@@ -152,6 +152,13 @@ class OneIEpp(nn.Module):
         self.encoder = encoder
         self.encoder_dropout = nn.Dropout(0.2)
 
+        self.token_start_enc = Linears([self.encoder.config.hidden_size, 512, 512])
+
+        self.is_start_clf = Linears([512, 128, 2])
+        self.len_from_here_clf = Linears([512, 128, 8])
+        self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
+
+
         self.span_candidate_classifier = Linears([node_dim, 200, 200, 2],
                             dropout_prob=.2)
 
@@ -609,6 +616,18 @@ class OneIEpp(nn.Module):
                                            attention_mask=batch.attention_mask,
                                            token_lens=batch.token_lens)
         batch_size = encoder_outputs.size(0)
+
+        encoded_starts = self.token_start_enc(encoder_outputs)
+
+        is_start_pred = self.is_start_clf(encoded_starts)
+        len_from_here_pred = self.len_from_here_clf(encoded_starts)
+        type_from_here_pred = self.type_from_here_clf(encoded_starts)
+
+        #len_from_here_pred[is_start_pred.argmax(-1) == 0][:, 0] = 10000.
+        #type_from_here_pred[is_start_pred.argmax(-1) == 0][:, 0] = 10000.
+
+        return is_start_pred, len_from_here_pred, type_from_here_pred
+
         # Generate entity and trigger span representations
         entity_span_repr = self.get_span_representations(encoder_outputs,
                                                          batch.entity_idxs,
@@ -818,7 +837,8 @@ class OneIEpp(nn.Module):
                 return scores, local_scores, span_candidate_score
 
     def forward(self, batch: Batch, last_only: bool = True):
-        span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
+        is_start, len_from_here, type_from_here = self.forward_nn(batch)
+        #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
         loss_names = []
 
@@ -829,29 +849,31 @@ class OneIEpp(nn.Module):
                                                  (elem_max(batch.entity_labels > 0, batch.trigger_labels > 0)).\
                                                  type(torch.LongTensor).cuda())
 
-        else:
-            span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2),
-                                                 (batch.entity_labels > 0).\
-                                                 type(torch.LongTensor).cuda())
 
-        if not torch.isnan(span_candidate_loss):
-            loss.append(span_candidate_loss)
-            loss_names.append("span_candidate")
-        else:
-            print('span_candidate_loss is NaN')
-            print(batch)
 
         #TODO: also fix for bs > 1
 
-        entity_loss = self.criteria(entity_type.view(-1, len(self.vocabs["entity"])),
-                                       batch.entity_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
+        entity_loss_start = self.criteria(is_start.view(-1, 2), batch.is_start.view(-1))
 
-        if not torch.isnan(entity_loss):
+        gold_start_one = (batch.is_start == 1.)
+
+        entity_loss_len = self.criteria(len_from_here[gold_start_one].view(-1, 8),
+                                        batch.len_from_here[gold_start_one].view(-1))
+        entity_loss_type = self.criteria(type_from_here[gold_start_one].view(-1, len(self.vocabs["entity"])),
+                                         batch.type_from_here[gold_start_one].view(-1))
+
+        loss = loss + [entity_loss_start, entity_loss_len, entity_loss_type]
+        loss_names = loss_names + ["entity_start", "entity_len", "entity_type"]
+
+        #entity_loss = self.criteria(entity_type.view(-1, len(self.vocabs["entity"])),
+        #                               batch.entity_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
+
+        """if not torch.isnan(entity_loss):
             loss.append(entity_loss)
             loss_names.append("entity")
         else:
             print('Entity loss is NaN')
-            print(batch)
+            print(batch)"""
 
         if self.config.get("do_coref"):
 
@@ -862,7 +884,6 @@ class OneIEpp(nn.Module):
             # get dist losses
             # also produce predictions
 
-            #TODO
             coref_true_cluster_means = torch_scatter.scatter_mean(coref_embeds, batch.mention_to_ent_coref, dim=1)
 
             #coref_true_cluster_scattered = torch.zeros(coref_embeds.shape).cuda()

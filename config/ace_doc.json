@@ -50,7 +50,7 @@
     "max_entity_len": 6,
     "max_trigger_len": 6,
 
-    "max_sent_len": 1500,
+    "max_sent_len": 2500,
 
     "use_avg_repr": false,
     "use_end_boundary": true,
@@ -61,7 +61,7 @@
 
     "classify_entities": true,
     "classify_relations": false,
-    "classify_triggers": true,
+    "classify_triggers": false,
     "classify_roles": false,
-    "do_coref": true
+    "do_coref": false
 }

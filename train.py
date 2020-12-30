@@ -376,15 +376,16 @@ for epoch in range(epoch_num):
                 if batch_idx % 150 == 0 or batch_idx < 30:
                     result = model.predict(batch)
 
-                    pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+                    pred_graphs = build_information_graph(batch, *result, vocabs)
 
-                    coref_embeds = result[-1]
+                    coref_embeds = None
+                    #coref_embeds = result[-1][0]
 
                     pred_train_graphs.extend(pred_graphs)
                     gold_train_graphs.extend(batch.graphs)
 
                     if batch_idx % 150 == 0:
-                        summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0], coref_embeds[0],
+                        summary_graph(pred_graphs[0], batch.graphs[0], batch,
                                   writer, global_step, "train_", vocabs)
 
             print('Train')
@@ -420,10 +421,10 @@ for epoch in range(epoch_num):
     
             writer.add_image("dev_entity_span_table", dev_entity_span_table, global_step)"""
 
-            pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+            pred_graphs = build_information_graph(batch, *result, vocabs)
 
             if batch_idx % 8 == 0:
-                summary_graph(pred_graphs[0], batch.graphs[0], batch, candidates[0], candidate_scores[0], coref_embeds[0],
+                summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs)
 
             pred_dev_graphs.extend(pred_graphs)
@@ -466,7 +467,7 @@ for epoch in range(epoch_num):
         for batch in tqdm(test_loader, ncols=75):
             result = model.predict(batch)
 
-            pred_graphs, candidates, candidate_scores = build_information_graph(batch, *result, vocabs)
+            pred_graphs = build_information_graph(batch, *result, vocabs)
 
             pred_test_graphs.extend(pred_graphs)
             gold_test_graphs.extend(batch.graphs)

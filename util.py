@@ -621,176 +621,32 @@ from sklearn.cluster import DBSCAN, OPTICS
 
 
 def build_information_graph(batch,
-                            span_candidate_score,
-                            span_candidates_idxs,
-                            entity_type,
-                            trigger_type,
-                            relation_type,
-                            coref_embeds,
+                            is_start,
+                            len_from_here,
+                            type_from_here,
                             vocabs):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
     relation_itos = {i: s for s, i in vocabs['relation'].items()}
     role_itos = {i: s for s, i in vocabs['role'].items()}
 
-    _candidates = []
-    _candidate_scores = []
 
     graphs = []
     for graph_idx in range(batch.batch_size):
-        # Predict candidate spans
-        candidates = []
-        candidate_scores = span_candidate_score[graph_idx].softmax(1)[:, 1].tolist()
-        for idx in range(len(candidate_scores)):
-            if candidate_scores[idx] > 0.5:
-                start, end = batch.entity_offsets[idx]
-                candidates.append((start, end))
-
-        _candidates.append(candidates)
-        _candidate_scores.append(candidate_scores)
-
-        span_cand_idxs = span_candidates_idxs[graph_idx, :, 0].tolist()
-
-        coref_matrix = None
-        coref_preds = None
-        if coref_embeds is not None:
-            coref_embeds_cur = coref_embeds[graph_idx].cpu().numpy()
-            clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
-
-            # coref_matrix = []
-            coref_preds = []
-            for i in range(coref_embeds_cur.shape[0]):
-                # new_l = []
-                for j in range(coref_embeds_cur.shape[0]):
-                    if i == j:
-                        continue
-                    if clustering.labels_[i] == clustering.labels_[j] and clustering.labels_[i] != -1:
-                        coref_preds.append(1)
-                        # new_l.append(1)
-                    else:
-                        coref_preds.append(0)
-                        # new_l.append(0)
-                # coref_matrix.append(new_l)
-
-            # coref_matrix = coref_preds[graph_idx].max(-1)[1]
-
-        en = entity_type[graph_idx]
-        # en = en.max(-1)[1].tolist()
-        # entity_num = en.shape[-2]
-
-        tt = trigger_type[graph_idx]
-        tt = tt.max(-1)[1].tolist()
 
         entities = []
-        triggers = []
 
-        cur_ents = 0
-        pos_ent_num = []
+        for j in range(is_start.shape[1]):
+            if is_start[graph_idx, j].argmax().item() == 1:
+                start = j
+                end = j + len_from_here[graph_idx, j].argmax().item()
+                type = type_from_here[graph_idx, j].argmax().item()
+                if type != 0:
+                    entities.append((start, end, entity_itos[type]))
 
-        coref_cur_idx = 0
+        graphs.append(Graph(entities, [], [], []))
 
-        for i, idx in enumerate(span_cand_idxs):
-
-            cur_scores = en[i]
-
-            if 0 and cur_scores.max(-1)[1].item() > 0 and i < coref_matrix.shape[0]:
-
-                # print(len(span_cand_idxs))
-
-                for j in range(min(coref_matrix.shape[0], len(span_cand_idxs))):
-
-                    # if en[j].max(-1)[1] == 0:
-                    #    continue
-
-                    if i == j:
-                        continue
-
-                    # print(i, j)
-
-                    if coref_matrix[i, j - int(j > i)]:
-                        cur_scores += en[j]
-
-                    coref_cur_idx += 1
-
-            start, end = batch.entity_offsets[idx]
-
-            span_et = cur_scores.max(-1)[1].item()
-            span_tt = tt[i]
-
-            if span_et > 0:
-                entities.append((start, end, entity_itos[span_et]))
-                pos_ent_num.append(cur_ents)
-                cur_ents += 1
-            else:
-                pos_ent_num.append(-1)
-
-            if span_tt > 0:
-                triggers.append((start, end, trigger_itos[span_tt]))
-
-        relations = []
-
-        if relation_type is not None:
-
-            relation_matrix = relation_type[graph_idx].max(-1)[1]
-
-            w, h = relation_matrix.shape[:2]
-
-            # bidirectional for now
-            for i in range(w):
-                for j in range(i + 1, h):
-
-                    cur_rel = max(relation_matrix[i, j - 1], relation_matrix[j, i]).item()
-
-                    if coref_matrix is not None:
-                        if max(coref_matrix[i, j - 1], coref_matrix[j, i]) == 1:
-                            cur_rel = 0
-
-                    if cur_rel:
-
-                        cur_rel_type = relation_itos[cur_rel]
-
-                        if pos_ent_num[i] == -1 or pos_ent_num[j] == -1:
-                            continue
-
-                        relations.append((pos_ent_num[i],
-                                          pos_ent_num[j],
-                                          cur_rel_type))
-
-        """# Predict entities
-        entities = []
-        entity_scores = all_scores['entity']  # [graph_idx]
-        if entity_scores.size(0) > 0 and entity_num:
-            entity_scores = entity_scores[:entity_num]
-            entity_type_idxs = entity_scores.max(1)[1].tolist()
-            for idx, entity_type_idx in enumerate(entity_type_idxs):
-                if entity_type_idx > 0:
-                    entity_type = entity_itos[entity_type_idx]
-                    start, end = inst_entity_offsets[idx]
-                    entities.append((start, end, entity_type))
-                    entity_idx_map[idx] = len(entity_idx_map)
-
-        # Predict triggers
-        triggers = []
-        trigger_scores = all_scores['trigger']  # [graph_idx]
-        if trigger_scores.size(0) > 0 and trigger_num:
-            trigger_scores = trigger_scores[:trigger_num]
-            trigger_type_idxs = trigger_scores.max(1)[1].tolist()
-
-            for idx, trigger_type_idx in enumerate(trigger_type_idxs):
-                if trigger_type_idx > 0:
-                    trigger_type = trigger_itos[trigger_type_idx]
-                    start, end = inst_trigger_offsets[idx]
-                    triggers.append((start, end, trigger_type))
-                    trigger_idx_map[idx] = len(trigger_idx_map)"""
-
-        # if coref_matrix is not None:
-        #    coref_preds_cur = coref_matrix.reshape(-1)#coref_preds[graph_idx].view(-1, 2).max(-1)[1]
-        # else:
-        #    coref_preds_cur = None
-
-        graphs.append(Graph(entities, triggers, relations, [], coref_preds))
-
-    return graphs, _candidates, _candidate_scores
+    return graphs
 
 
 def load_model(path, model, device=0, gpu=True):
@@ -814,7 +670,7 @@ from highlight_text import ax_text, fig_text
 import matplotlib.colors as mcolors
 
 
-def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores, coref_embeds,
+def summary_graph(pred_graph, true_graph, batch,
                   writer, global_step, prefix, vocabs):
     tokens = batch.tokens[0]
 
@@ -824,41 +680,6 @@ def summary_graph(pred_graph, true_graph, batch, candidates, candidate_scores, c
 
     for i in range(len(offsets)):
         rev_offsets[offsets[i]] = i
-
-    span_candidates = []
-    for (s, e) in candidates:
-        span_candidates.append(("|".join(tokens[s:e]), s, e, round(candidate_scores[rev_offsets[(s, e)]], 2)))
-
-    true_spans = []
-
-    for (s, e, t) in true_graph.entities:
-        score = -1
-        if (s, e) in rev_offsets:
-            score = round(candidate_scores[rev_offsets[(s, e)]], 2)
-        true_spans.append(("|".join(tokens[s:e]), s, e, score))
-
-    for (s, e, t) in true_graph.triggers:
-        score = -1
-        if (s, e) in rev_offsets:
-            score = round(candidate_scores[rev_offsets[(s, e)]], 2)
-        true_spans.append(("|".join(tokens[s:e]), s, e, score))
-
-    writer.add_text(prefix + "span_candidates", " ".join(str(span_candidates)), global_step)
-    writer.add_text(prefix + "true_spans", " ".join(str(true_spans)), global_step)
-    # writer.add_text(prefix + "full_text", "|".join(tokens), global_step)
-
-    span_candidates = set(span_candidates)
-
-    true_spans = set(true_spans)
-
-    predicted_false = span_candidates - true_spans
-
-    not_predicted = true_spans - span_candidates
-
-    writer.add_text(prefix + "candidates_false", " ".join(str(predicted_false)), global_step)
-    writer.add_text(prefix + "candidates_not_predicted", " ".join(str(not_predicted)), global_step)
-
-    ################################
 
     predicted_entities = []
     for (s, e, t) in pred_graph.entities:
