@@ -37,6 +37,7 @@ class Config():
         self.relation_directional = kwargs.pop('relation_directional', False)
         self.symmetric_relations = set(kwargs.pop('symmetric_relations', ['PER-SOC']))
         # files
+        self.file_dir = kwargs.pop('file_dir', None)
         self.train_file = kwargs.pop('train_file', None)
         self.dev_file = kwargs.pop('dev_file', None)
         self.test_file = kwargs.pop('test_file', None)

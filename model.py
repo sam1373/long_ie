@@ -17,6 +17,8 @@ from span_transformer import SpanTransformer
 
 import torch_scatter
 
+import random
+
 logger = logging.getLogger(__name__)
 
 
@@ -133,17 +135,13 @@ class OneIEpp(nn.Module):
                  vocabs: Dict[str, Dict[str, int]],
                  encoder: nn.Module,
                  node_dim: int,
-                 entity_classifier: nn.Module = None,
-                 mention_classifier: nn.Module = None,
-                 event_classifier: nn.Module = None,
-                 relation_classifier: nn.Module = None,
-                 role_classifier: nn.Module = None,
-                 span_len_embed:nn.Module = None,
                  word_embed:nn.Module = None,
                  gnn: nn.Module = None,
                  extra_bert: int = 0,
                  span_repr_dim: int = None,
                  span_comp_dim: int = 512,
+                 word_embed_dim: int = 0,
+                 coref_embed_dim: int = 64,
                  ):
         super().__init__()
 
@@ -152,29 +150,33 @@ class OneIEpp(nn.Module):
         self.encoder = encoder
         self.encoder_dropout = nn.Dropout(0.2)
 
-        self.token_start_enc = Linears([self.encoder.config.hidden_size, 512, 512])
+        token_initial_dim = self.encoder.config.hidden_size
+        if self.config.get('use_extra_word_embed'):
+            token_initial_dim += word_embed_dim
 
-        self.is_start_clf = Linears([512, 128, 2])
-        self.len_from_here_clf = Linears([512, 128, 8])
-        self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
+        #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
+
+        self.is_start_clf = Linears([token_initial_dim, 200, 2])
+        self.len_from_here_clf = Linears([token_initial_dim, 200, 8])
+        self.type_clf = Linears([token_initial_dim, 200, len(vocabs['entity'])])
+
+        self.coref_embed = Linears([token_initial_dim, 200, coref_embed_dim])
+        #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
+
+        #self.importance_score = Linears([token_initial_dim, 128, 1])
 
 
-        self.span_candidate_classifier = Linears([node_dim, 200, 200, 2],
-                            dropout_prob=.2)
+        #self.span_candidate_classifier = Linears([node_dim, 200, 200, 2],
+        #                    dropout_prob=.2)
 
-        self.span_compress = nn.Linear(span_repr_dim, span_comp_dim)
+        #self.span_compress = nn.Linear(span_repr_dim, span_comp_dim)
 
-        self.span_transformer = SpanTransformer(span_dim=span_comp_dim,
+        self.span_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                 vocabs=vocabs,
                                                 final_pred_embeds=False,
                                                 num_layers=3)
 
-        self.entity_classifier = entity_classifier
-        self.mention_classifier = mention_classifier
-        self.event_classifier = event_classifier
-        self.relation_classifier = relation_classifier
-        self.role_classifier = role_classifier
-        self.span_len_embed = span_len_embed
+
         self.word_embed = word_embed
         self.gnn = gnn
         self.use_extra_bert = config.get("use_extra_bert")
@@ -256,7 +258,7 @@ class OneIEpp(nn.Module):
             token_mask.append(seq_token_mask)
         token_idxs = (inputs.new(token_idxs)
                       .unsqueeze(-1)
-                      .expand(batch_size, -1, bert_dim)) + 1
+                      .expand(batch_size, -1, bert_dim)) + 1#<s>
         token_mask = bert_outputs.new(token_mask).unsqueeze(-1)
 
         # For each token, select vectors of its wordpieces and average them
@@ -270,7 +272,7 @@ class OneIEpp(nn.Module):
         # Apply output dropout
         bert_outputs = self.encoder_dropout(bert_outputs)
 
-        return bert_outputs, seq_repr
+        return bert_outputs
 
     def get_span_representations(self,
                                  encoder_outputs,
@@ -610,23 +612,78 @@ class OneIEpp(nn.Module):
             target_ = target.repeat(layer_num)
             return self.criteria(scores_, target_)
 
-    def forward_nn(self, batch: Batch, predict: bool = False):
+    def forward_nn(self, batch: Batch, predict: bool = False, epoch=0):
         # Run the encoder to get contextualized word representations
-        encoder_outputs, seq_repr = self.encode_bert(batch.pieces,
+
+        encoder_outputs = self.encode_bert(batch.pieces,
                                            attention_mask=batch.attention_mask,
                                            token_lens=batch.token_lens)
+        #encoder_outputs = torch.zeros(batch.token_embed_ids.shape[:2] + (self.encoder.config.hidden_size,)).cuda()
+
         batch_size = encoder_outputs.size(0)
 
-        encoded_starts = self.token_start_enc(encoder_outputs)
+        if self.config.get('use_extra_word_embed'):
+            word_embed_repr = self.word_embed(batch.token_embed_ids)#.detach()
+            #if epoch >= 6:
+            word_embed_repr = word_embed_repr.detach()
+            encoder_outputs = torch.cat((encoder_outputs, word_embed_repr), dim=-1)
 
-        is_start_pred = self.is_start_clf(encoded_starts)
-        len_from_here_pred = self.len_from_here_clf(encoded_starts)
-        type_from_here_pred = self.type_from_here_clf(encoded_starts)
+        #encoded_starts = self.token_start_enc(encoder_outputs)
+
+        is_start_pred = self.is_start_clf(encoder_outputs)
+        len_from_here_pred = self.len_from_here_clf(encoder_outputs)
+        #type_from_here_pred = self.type_from_here_clf(encoded_starts)
 
         #len_from_here_pred[is_start_pred.argmax(-1) == 0][:, 0] = 10000.
         #type_from_here_pred[is_start_pred.argmax(-1) == 0][:, 0] = 10000.
 
-        return is_start_pred, len_from_here_pred, type_from_here_pred
+        #importance = self.importance_score(encoder_outputs)
+
+        ##try only start tokens
+        #V
+
+        if not predict:
+
+            max_entities = batch.is_start.sum(-1).max().item()
+
+            entity_spans = torch.zeros(batch_size, max_entities, encoder_outputs.shape[-1]).cuda()
+
+            for b in range(batch_size):
+                for i in range(max_entities):
+                    l, r = batch.pos_entity_offsets[b][i]
+                    #importance_weight = importance[b, l:r, 0].softmax(-1)
+                    #entity_spans[b, i] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)), dim=0)
+                    entity_spans[b, i] = encoder_outputs[b, l]
+        else:
+
+            max_entities = is_start_pred.argmax(-1).sum(-1).max().item()
+
+            entity_spans = torch.zeros(batch_size, max_entities, encoder_outputs.shape[-1]).cuda()
+
+            cur_ent = 0
+
+            for b in range(batch_size):
+                for i in range(is_start_pred.shape[1]):
+                    if is_start_pred[b, i].argmax(-1) == 1:
+                        l = i
+                        #r = l + len_from_here_pred[b, i].argmax(-1)
+                        #importance_weight = importance[b, l:r, 0].softmax(-1)
+                        #entity_spans[b, cur_ent] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)),
+                        #                           dim=0)
+                        entity_spans[b, cur_ent] = encoder_outputs[b, l]
+
+                        cur_ent += 1
+
+                        if cur_ent >= max_entities:
+                            break
+
+        entity_spans = self.span_transformer(entity_spans)
+
+        type_pred = self.type_clf(entity_spans)
+
+        coref_embed = self.coref_embed(entity_spans)
+
+        return is_start_pred, len_from_here_pred, type_pred, coref_embed
 
         # Generate entity and trigger span representations
         entity_span_repr = self.get_span_representations(encoder_outputs,
@@ -836,8 +893,8 @@ class OneIEpp(nn.Module):
             else:
                 return scores, local_scores, span_candidate_score
 
-    def forward(self, batch: Batch, last_only: bool = True):
-        is_start, len_from_here, type_from_here = self.forward_nn(batch)
+    def forward(self, batch: Batch, last_only: bool = True, epoch=0):
+        is_start, len_from_here, type_pred, coref_embeds = self.forward_nn(batch, epoch=epoch)
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
         loss_names = []
@@ -859,8 +916,9 @@ class OneIEpp(nn.Module):
 
         entity_loss_len = self.criteria(len_from_here[gold_start_one].view(-1, 8),
                                         batch.len_from_here[gold_start_one].view(-1))
-        entity_loss_type = self.criteria(type_from_here[gold_start_one].view(-1, len(self.vocabs["entity"])),
-                                         batch.type_from_here[gold_start_one].view(-1))
+        entity_loss_type = self.criteria(type_pred.view(-1, len(self.vocabs["entity"])),
+                                         batch.entity_labels[batch.entity_labels > 0])
+                                         #batch.type_from_here[:].view(-1))
 
         loss = loss + [entity_loss_start, entity_loss_len, entity_loss_type]
         loss_names = loss_names + ["entity_start", "entity_len", "entity_type"]
@@ -888,16 +946,31 @@ class OneIEpp(nn.Module):
 
             #coref_true_cluster_scattered = torch.zeros(coref_embeds.shape).cuda()
 
-            coref_true_cluster_aligned = torch.gather(coref_true_cluster_means, 1, batch.mention_to_ent_coref.unsqueeze(-1).expand(-1, -1, 128))
+            coref_true_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
+                                                      batch.mention_to_ent_coref.unsqueeze(-1).expand(-1, -1, coref_true_cluster_means.shape[-1]))
+
+
+
+            #random_shift = random.randint(0, coref_embeds.shape[1])
+            #shifted_clusters =  torch.cat((batch.mention_to_ent_coref[:, random_shift:],
+            #                               batch.mention_to_ent_coref[:, random_shift]), dim=1)
+
+            total_clusters = batch.mention_to_ent_coref.max() + 1
+            random_shift = torch.randint(1, total_clusters, batch.mention_to_ent_coref.shape).cuda()
+            false_clusters = (batch.mention_to_ent_coref + random_shift) % total_clusters
+
+            coref_false_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
+                                                      false_clusters.unsqueeze(-1).expand(-1, -1, coref_true_cluster_means.shape[-1]))
 
             dist_to_true_cluster_center = torch.norm(coref_embeds - coref_true_cluster_aligned, dim=-1)
+            dist_to_false_cluster_center = torch.clamp(5 - torch.norm(coref_embeds - coref_false_cluster_aligned, dim=-1), min=0) ** 2
 
-            avg_of_clusters = torch.mean(coref_true_cluster_means, dim=-2)
+            #avg_of_clusters = torch.mean(coref_true_cluster_means, dim=-2)
 
-            dist_to_avg_of_clusters = torch.norm(coref_true_cluster_means - avg_of_clusters, dim=-1)
+            #dist_to_avg_of_clusters = torch.norm(coref_true_cluster_means - avg_of_clusters, dim=-1)
 
             coref_loss_attract = dist_to_true_cluster_center.mean()
-            coref_loss_repel = -dist_to_avg_of_clusters.mean()
+            coref_loss_repel = dist_to_false_cluster_center.mean()
             #coref_cluster_loss = dist_to_true_cluster_center.mean() - dist_to_avg_of_clusters.mean()
 
             #coref_pred = coref_pred.view(-1, coref_pred.shape[-1])
@@ -1011,10 +1084,10 @@ class OneIEpp(nn.Module):
         #loss = sum(loss) if loss else None
         return loss, loss_names
 
-    def predict(self, batch: Batch):
+    def predict(self, batch: Batch, epoch=0):
         self.eval()
         with torch.no_grad():
-            result = self.forward_nn(batch, predict=True)
+            result = self.forward_nn(batch, predict=True, epoch=epoch)
 
         self.train()
         return result

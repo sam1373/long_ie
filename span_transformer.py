@@ -29,27 +29,15 @@ class SpanTransformer(nn.Module):
             #if final_pred_embeds:
             #    input_dim += et_dim + tt_dim
 
-            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=4))
-                                        ##RegLayer(span_dim))
+            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8, dropout=0.2))
 
             self.layers.append(trans_layer)
 
         self.layers = nn.ModuleList(self.layers)
 
-        #self.linear_is_entity = nn.Linear(span_dim, 2)
 
-        self.linear_entity_type = nn.Sequential(nn.Linear(span_dim, single_hid_dim), RegLayer(single_hid_dim),
-                                                nn.LeakyReLU(), nn.Linear(single_hid_dim, len(vocabs['entity'])))
 
-        #self.linear_is_trigger = nn.Linear(span_dim, 2)
-
-        self.linear_trigger_type = nn.Sequential(nn.Linear(span_dim, single_hid_dim), RegLayer(single_hid_dim),
-                                                nn.LeakyReLU(), nn.Linear(single_hid_dim, len(vocabs['event'])))
-
-        #self.coref_classifier = nn.Sequential(nn.Linear(span_dim * 2, pair_hid_dim), nn.ReLU(),
-        #                                    nn.Linear(pair_hid_dim, 2))
-
-        self.before_rel_compress = nn.Sequential(nn.Linear(span_dim, span_dim * 2), RegLayer(span_dim * 2),
+        """self.before_rel_compress = nn.Sequential(nn.Linear(span_dim, span_dim * 2), RegLayer(span_dim * 2),
                                                  nn.Linear(span_dim * 2, span_dim_small), RegLayer(span_dim_small))
 
         self.rel_q_linear = nn.Linear(span_dim, span_dim_small)
@@ -76,7 +64,7 @@ class SpanTransformer(nn.Module):
 
         self.dist_seps = dist_seps
 
-        self.dist_embed = nn.Embedding(len(dist_seps) + 1, dist_embed_dim)
+        self.dist_embed = nn.Embedding(len(dist_seps) + 1, dist_embed_dim)"""
 
 
     def forward(self, span_repr, predict=False, true_spans=None, batch=None, span_cand_idxs=None):
@@ -97,42 +85,9 @@ class SpanTransformer(nn.Module):
             span_repr = l(span_repr)
 
 
+        return span_repr
 
-        entity_type = self.linear_entity_type(span_repr)
-        trigger_type = self.linear_trigger_type(span_repr)
 
-        return entity_type, trigger_type, None, None
-
-        if predict == False:
-
-            #print(span_repr.shape)
-
-            #print(true_spans.min(), true_spans.max())
-
-            if true_spans.shape[-1] == 0:
-                span_repr = span_repr[:, 0].unsqueeze(1)
-                print(span_repr.shape)
-            else:
-                span_repr = torch.gather(span_repr, 1, true_spans.unsqueeze(-1).expand(-1, -1, self.span_dim))
-
-        #print(span_repr.shape)
-
-        span_num = span_repr.shape[1]
-
-        """if span_num > 300:
-            span_num = 300
-            span_repr = span_repr[:, :span_num]
-            #span_repr_orig = span_repr_orig[:, :span_num]"""
-
-        #special embedding method
-
-        coref_embeds = self.coref_embed(span_repr)
-
-        ###
-
-        return entity_type, trigger_type, None, coref_embeds
-
-        #attn_based pair stuff
 
         """rel_q = self.rel_q_linear(span_repr)
         rel_k = self.rel_k_linear(span_repr)
@@ -160,71 +115,4 @@ class SpanTransformer(nn.Module):
 
         return entity_type, trigger_type, None, None"""
 
-        ###old rel stuff below this
 
-        """span_repr = self.before_rel_compress(span_repr)
-
-        pair_src_idxs, pair_dst_idxs = get_pairwise_idxs_separate(span_num,
-                                                                span_num,
-                                                                True)
-
-        #print(span_num, len(pair_src_idxs))
-
-
-        dists = []
-
-        for b in range(batch_size):
-            cur_dist_list = []
-            for i in range(len(pair_src_idxs)):
-                if predict == False:
-                    a_pos = batch.pos_entity_offsets[b][pair_src_idxs[i]][0]
-                    b_pos = batch.pos_entity_offsets[b][pair_dst_idxs[i]][0]
-                    #a_pos = batch.entity_offsets[span_cand_idxs[b, true_spans[b, pair_src_idxs[i]].item()].item()][0]
-                    #b_pos = batch.entity_offsets[span_cand_idxs[b, true_spans[b, pair_dst_idxs[i]].item()].item()][0]
-                else:
-                    a_pos = batch.entity_offsets[span_cand_idxs[b, pair_src_idxs[i]].item()][0]
-                    b_pos = batch.entity_offsets[span_cand_idxs[b, pair_dst_idxs[i]].item()][0]
-                dist = abs(a_pos - b_pos)
-                dist_val = len(self.dist_seps)
-                for sep_id, sep in enumerate(self.dist_seps):
-                    if dist <= sep:
-                        dist_val = sep_id
-                        break
-                cur_dist_list.append(dist_val)
-            dists.append(cur_dist_list)
-
-        dist = torch.cuda.LongTensor(dists)
-
-
-        pair_src_idxs = (torch.cuda.LongTensor(pair_src_idxs)
-                        .unsqueeze(0).unsqueeze(-1)
-                        .expand(batch_size, -1, self.span_dim_small))
-        pair_dst_idxs = (torch.cuda.LongTensor(pair_dst_idxs)
-                        .unsqueeze(0).unsqueeze(-1)
-                        .expand(batch_size, -1, self.span_dim_small))
-
-        pair_src_repr = (span_repr
-                        .gather(1, pair_src_idxs)
-                        .view(batch_size, span_num, span_num - 1, self.span_dim_small))
-        pair_dst_repr = (span_repr
-                        .gather(1, pair_dst_idxs)
-                        .view(batch_size, span_num, span_num - 1, self.span_dim_small))
-
-        del span_repr, pair_src_idxs, pair_dst_idxs
-
-        dist_embeds = self.dist_embed(dist)
-
-        dist_embeds = dist_embeds.view(batch_size, pair_src_repr.shape[1], -1, dist_embeds.shape[-1])
-
-        #diff = pair_dst_repr - pair_src_repr
-
-        #del pair_dst_repr, pair_src_repr
-
-        pair_repr = torch.cat((pair_dst_repr, pair_src_repr, dist_embeds), dim=-1)
-
-        #relation_type = self.rel_classifier(pair_repr)
-
-        #coref_pred = None
-        coref_pred = self.coref_classifier(pair_repr)
-
-        return entity_type, trigger_type, None, coref_pred"""

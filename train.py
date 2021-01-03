@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from transformers import (LongformerModel, LongformerTokenizer,
                           RobertaTokenizer, BertConfig, AdamW,
                           ElectraTokenizer, ElectraForMaskedLM,
+                          XLNetModel, XLNetTokenizer,
                           get_linear_schedule_with_warmup)
 from model import OneIEpp, Linears, PairLinears
 from graph import Graph
@@ -93,26 +94,26 @@ if use_extra_word_embed:
 
 # datasets
 model_name = config.bert_model_name
-#tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
-#                                             cache_dir=config.bert_cache_dir,
-#                                             do_lower_case=False)
 
 tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
                                              cache_dir=config.bert_cache_dir,
                                              do_lower_case=False)
+
+
+#tokenizer = XLNetTokenizer.from_pretrained("xlnet-base-cased")
 
 wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-generator')
 wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True)
 
 
 if args.debug:
-    train_set = IEDataset(config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
-    dev_set = IEDataset(config.dev_file, config, word_vocab)
-    test_set = IEDataset(config.dev_file, config, word_vocab)
+    train_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+    dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
+    test_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
 else:
-    train_set = IEDataset(config.train_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
-    dev_set = IEDataset(config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
-    test_set = IEDataset(config.test_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+    train_set = IEDataset(config.file_dir + config.train_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+    dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+    test_set = IEDataset(config.file_dir + config.test_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
 
 cur_swap_prob = 0
 
@@ -168,6 +169,8 @@ else:
 
 bert = LongformerModel.from_pretrained("allenai/longformer-base-4096")
 
+#bert = XLNetModel.from_pretrained("xlnet-base-cased")
+
 bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
     bert_dim *= 2
@@ -183,7 +186,7 @@ dimensions = {
     'relation_label': relation_label_size,
     'role_label': role_label_size
 }
-entity_classifier = Linears([node_dim, 200, 200, entity_label_size],
+"""entity_classifier = Linears([node_dim, 200, 200, entity_label_size],
                             dropout_prob=.2)
 trigger_classifier = Linears([node_dim, 200, event_label_size],
                              dropout_prob=.2)
@@ -209,7 +212,7 @@ role_classifier_gnn = PairLinears(node_dim + trigger_label_size,
                                   role_label_size,
                                   dropout_prob=.2)
 
-span_len_embed = torch.nn.Embedding(config.max_entity_len, 32)
+span_len_embed = torch.nn.Embedding(config.max_entity_len, 32)"""
 
 # conv_list = [
 #     ('relation', node_dim + entity_label_size, node_dim +
@@ -241,17 +244,12 @@ model = OneIEpp(config,
                 vocabs,
                 bert,
                 node_dim=node_dim,
-                entity_classifier=entity_classifier,
-                mention_classifier=mention_classifier,
-                event_classifier=trigger_classifier,
-                relation_classifier=relation_classifier,
-                role_classifier=role_classifier,
-                span_len_embed=span_len_embed,
                 word_embed=word_embed,
                 gnn=None,
                 extra_bert=extra_bert,
                 span_repr_dim=node_dim,
-                span_comp_dim=512)
+                span_comp_dim=512,
+                word_embed_dim=word_embed_dim)
 
 # model.load_bert(model_name, cache_dir=config.bert_cache_dir)
 if use_gpu:
@@ -321,7 +319,7 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
-            loss, train_loss_names = model(batch)
+            loss, train_loss_names = model(batch, epoch=epoch)
             # print(loss)
             # print(batch.pieces.shape, batch.entity_labels.shape, batch.relation_labels.shape)
             # print(batch.trigger_labels.shape, batch.role_labels.shape)
@@ -374,19 +372,18 @@ for epoch in range(epoch_num):
 
             for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
                 if batch_idx % 150 == 0 or batch_idx < 30:
-                    result = model.predict(batch)
+                    result = model.predict(batch, epoch=epoch)
 
                     pred_graphs = build_information_graph(batch, *result, vocabs)
 
-                    coref_embeds = None
-                    #coref_embeds = result[-1][0]
+                    coref_embeds = result[-1]
 
                     pred_train_graphs.extend(pred_graphs)
                     gold_train_graphs.extend(batch.graphs)
 
                     if batch_idx % 150 == 0:
                         summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                                  writer, global_step, "train_", vocabs)
+                                  writer, global_step, "train_", vocabs, coref_embeds)
 
             print('Train')
             train_scores = score_graphs(gold_train_graphs, pred_train_graphs, False)
@@ -407,7 +404,7 @@ for epoch in range(epoch_num):
     if epoch % 5 == 0:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
-            result = model.predict(batch)
+            result = model.predict(batch, epoch=epoch)
 
             coref_embeds = result[-1]
 
@@ -425,7 +422,7 @@ for epoch in range(epoch_num):
 
             if batch_idx % 8 == 0:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                          writer, global_step, "dev_", vocabs)
+                          writer, global_step, "dev_", vocabs, coref_embeds)
 
             pred_dev_graphs.extend(pred_graphs)
             gold_dev_graphs.extend(batch.graphs)

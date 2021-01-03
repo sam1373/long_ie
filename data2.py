@@ -642,7 +642,7 @@ class IEDataset(Dataset):
         #pieces = [tokenizer.tokenize(" " * (i > 0 and not (token in [".", ","])) + token) for i, token in enumerate(tokens)]
         token_lens = [len(p) for p in pieces]
         # Remove overlength sentences
-        if sum(token_lens) + 2 > max_sent_len:
+        if sum(token_lens) > max_sent_len:
             print("skipped due to length:", sum(token_lens))
             return False
         # Todo: automatically remove 0-len tokens
@@ -656,6 +656,9 @@ class IEDataset(Dataset):
                                                max_length=max_sent_len,
                                                truncation=True)
         sentence.attention_mask = [1.0] * len(sentence.piece_idxs)
+        #token_lens[0] += 1  # for <s>
+        #token_lens[-1] += 1  # for </s>
+        #accounted for later
         if self.word_vocab:
             sentence.token_embed_ids = [self.word_vocab.get(tok.lower(), 0) for tok in tokens]
         return True

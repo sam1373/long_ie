@@ -360,10 +360,11 @@ def enumerate_spans(seq_len: int,
     idxs, mask, offsets, lens, boundaries = [], [], [], [], []
 
     # max_span_len = min(seq_len, max_span_len)
-    for span_len in range(1, max_span_len + 1):
-        pad_len = max_span_len - span_len
-        # rel_span_len = span_len / max_span_len
-        for start in range(seq_len - span_len + 1):
+    for start in range(seq_len):
+        for span_len in range(1, max_span_len + 1):
+            if start + span_len > seq_len:
+                break
+            pad_len = max_span_len - span_len
             end = start + span_len
             offsets.append((start, end))
             idxs.extend([i for i in range(start, end)] + [0] * pad_len)
@@ -373,6 +374,7 @@ def enumerate_spans(seq_len: int,
             span_len_vec = [0 for i in range(max_span_len)]
             span_len_vec[span_len - 1] = 1
             lens.append(span_len_vec)
+
     return idxs, mask, offsets, lens, boundaries
 
 
@@ -623,7 +625,8 @@ from sklearn.cluster import DBSCAN, OPTICS
 def build_information_graph(batch,
                             is_start,
                             len_from_here,
-                            type_from_here,
+                            type_pred,
+                            coref_embeds,
                             vocabs):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
@@ -634,17 +637,38 @@ def build_information_graph(batch,
     graphs = []
     for graph_idx in range(batch.batch_size):
 
+        coref_preds = None
+        if coref_embeds is not None:
+            coref_embeds_cur = coref_embeds[graph_idx].cpu().numpy()
+            clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
+
+            coref_preds = []
+            for i in range(coref_embeds_cur.shape[0]):
+                # new_l = []
+                for j in range(coref_embeds_cur.shape[0]):
+                    if i == j:
+                        continue
+                    if clustering.labels_[i] == clustering.labels_[j] and clustering.labels_[i] != -1:
+                        coref_preds.append(1)
+                        # new_l.append(1)
+                    else:
+                        coref_preds.append(0)
+
         entities = []
+
+        cur_ent = 0
 
         for j in range(is_start.shape[1]):
             if is_start[graph_idx, j].argmax().item() == 1:
                 start = j
                 end = j + len_from_here[graph_idx, j].argmax().item()
-                type = type_from_here[graph_idx, j].argmax().item()
-                if type != 0:
-                    entities.append((start, end, entity_itos[type]))
+                #type = type_from_here[graph_idx, j].argmax().item()
+                type = type_pred[graph_idx, cur_ent].argmax().item()
+                cur_ent += 1
+                #if type != 0:
+                entities.append((start, end, entity_itos[type]))
 
-        graphs.append(Graph(entities, [], [], []))
+        graphs.append(Graph(entities, [], [], [], coref_preds))
 
     return graphs
 
@@ -668,10 +692,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from highlight_text import ax_text, fig_text
 import matplotlib.colors as mcolors
-
+from sklearn.manifold import TSNE
 
 def summary_graph(pred_graph, true_graph, batch,
-                  writer, global_step, prefix, vocabs):
+                  writer, global_step, prefix, vocabs, coref_embeds=None):
+
+
+
+    coref_embeds = coref_embeds[0]
+
     tokens = batch.tokens[0]
 
     offsets = batch.entity_offsets
@@ -705,6 +734,8 @@ def summary_graph(pred_graph, true_graph, batch,
     writer.add_text(prefix + "not_predicted", " ".join(str(not_predicted)), global_step)
 
     all_cols = list(mcolors.TABLEAU_COLORS) + list(mcolors.BASE_COLORS)
+
+
 
     true_ent_text = ""
 
@@ -929,6 +960,28 @@ def summary_graph(pred_graph, true_graph, batch,
                 pred_coref_text += " ".join(str(coref_ents)) + "\n"
 
         writer.add_text(prefix + "pred_coref_text", pred_coref_text, global_step)
+
+        if coref_embeds.shape[-1] != 2:
+            coref_embeds = coref_embeds.cpu().numpy()
+            coref_embeds = TSNE(n_components=2).fit_transform(coref_embeds)
+
+        y = coref_embeds[:, 0].tolist()
+        z = coref_embeds[:, 1].tolist()
+
+        n = [ent[0] for ent in predicted_entities]
+        c = [all_cols[coref_entities[i] % len(all_cols)] for i in range(entity_num)]
+
+        fig, ax = plt.subplots()
+        ax.scatter(z, y, c=c)
+
+        for i, txt in enumerate(n):
+            ax.annotate(txt, (z[i], y[i]))
+
+        fig.canvas.draw()
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        writer.add_image(prefix + "pred_coref_embeds", img1, global_step, dataformats='HWC')
+
 
     col_list = []
 
@@ -1193,22 +1246,22 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
 
 class RegLayer(nn.Module):
 
-    def __init__(self, hid_dim, s=0.1, d=0.3):
+    def __init__(self, hid_dim, s=0.1, d=0.2):
         super(RegLayer, self).__init__()
 
-        # self.drop = nn.Dropout(d)
+        self.drop = nn.Dropout(d)
         # self.norm = nn.LayerNorm(hid_dim)
         self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
 
         self.s = s
 
     def forward(self, x):
-        """if self.training:
-            r = torch.randn(x.shape).cuda() * self.s
-            x = x * (r + 1.)
-            del r"""
+        #if self.training:
+        #    r = torch.randn(x.shape).cuda() * self.s
+        #    x = x * (r + 1.)
+        #    del r
 
-        # x = self.drop(x)
+        x = self.drop(x)
 
         # print(x.shape)
         x = x.transpose(-2, -1)
