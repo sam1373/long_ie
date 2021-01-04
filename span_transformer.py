@@ -29,7 +29,7 @@ class SpanTransformer(nn.Module):
             #if final_pred_embeds:
             #    input_dim += et_dim + tt_dim
 
-            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8, dropout=0.2))
+            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8, dropout=0.3))
 
             self.layers.append(trans_layer)
 
@@ -71,6 +71,8 @@ class SpanTransformer(nn.Module):
 
         batch_size = span_repr.shape[0]
 
+        span_reprs = []
+
         for l in self.layers:
 
             if self.final_pred_embeds:
@@ -83,9 +85,10 @@ class SpanTransformer(nn.Module):
                 span_repr = span_repr + et_embed + tt_embed#torch.cat((span_repr, et_embed, tt_embed), dim=-1)
 
             span_repr = l(span_repr)
+            span_reprs.append(span_repr)
 
 
-        return span_repr
+        return span_reprs[0] + span_reprs[len(self.layers) // 2] + span_reprs[-1]
 
 
 

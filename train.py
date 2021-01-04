@@ -22,11 +22,11 @@ from util import generate_vocabs, load_valid_patterns, save_result, best_score_b
 
 from torch.utils.tensorboard import SummaryWriter
 
-from roberta import RobertaModelPlus
+#from roberta import RobertaModelPlus
 
 from tqdm import tqdm
 
-import torch_optimizer as optim
+#import torch_optimizer as optim
 
 import gc
 
@@ -84,7 +84,7 @@ word_vocab = None
 word_embed = None
 if use_extra_word_embed:
 
-    embed_file = '/home/samuel/Downloads/lstm_fet/enwiki.skip.size200.win10.neg15.sample1e-5.min15.txt'
+    embed_file = '../lstm_fet/enwiki.skip.size200.win10.neg15.sample1e-5.min15.txt'
     word_embed_dim = 200
 
     print('Loading word embeddings from %s' % embed_file)

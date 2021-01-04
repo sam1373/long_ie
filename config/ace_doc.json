@@ -25,7 +25,7 @@
     "relation_directional": false,
     "symmetric_relations": ["PER-SOC"],
 
-    "file_dir": "/home/samuel/Data/ace_2005_td_v7/proc/",
+    "file_dir": "../data/",
   
     "train_file": "train.oneie.json",
     "dev_file": "dev.oneie.json",
@@ -38,7 +38,7 @@
     "accumulate_step": 1,
     "batch_size": 1,
     "eval_batch_size": 1,
-    "max_epoch": 60,
+    "max_epoch": 100,
     "learning_rate": 1e-3,
     "bert_learning_rate": 1e-5,
     "weight_decay": 1e-3,
@@ -59,11 +59,11 @@
 
     "use_first_wp": false,
 
-    "use_extra_word_embed": false,
+    "use_extra_word_embed": true,
 
     "classify_entities": true,
     "classify_relations": false,
     "classify_triggers": false,
     "classify_roles": false,
-    "do_coref": true
+    "do_coref": false
 }

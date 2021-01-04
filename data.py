@@ -30,16 +30,12 @@ batch_fields = [
 batch_ldc_eval_fields = [
     'sent_ids', 'token_ids', 'tokens', 'piece_idxs', 'token_lens', 'attention_masks', 'token_nums'
 ]
-Instance = namedtuple('Instance', field_names=instance_fields,
-                      defaults=[None] * len(instance_fields))
+Instance = namedtuple('Instance', field_names=instance_fields)
 InstanceLdcEval = namedtuple('InstanceLdcEval',
-                             field_names=instance_ldc_eval_fields,
-                             defaults=[None] * len(instance_ldc_eval_fields))
-Batch = namedtuple('Batch', field_names=batch_fields,
-                   defaults=[None] * len(batch_fields))
+                             field_names=instance_ldc_eval_fields)
+Batch = namedtuple('Batch', field_names=batch_fields)
 BatchLdcEval = namedtuple('BatchLdcEval',
-                          field_names=batch_ldc_eval_fields,
-                          defaults=[None] * len(batch_ldc_eval_fields))
+                          field_names=batch_ldc_eval_fields)
 BatchEval = namedtuple('BatchEval', field_names=['sent_ids', 'piece_idxs',
                                                  'tokens', 'attention_masks',
                                                  'token_lens', 'token_nums'])

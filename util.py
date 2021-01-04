@@ -1246,10 +1246,10 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
 
 class RegLayer(nn.Module):
 
-    def __init__(self, hid_dim, s=0.1, d=0.2):
+    def __init__(self, hid_dim, s=0.1, d=0.3):
         super(RegLayer, self).__init__()
 
-        self.drop = nn.Dropout(d)
+        #self.drop = nn.Dropout(d)
         # self.norm = nn.LayerNorm(hid_dim)
         self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
 
@@ -1261,7 +1261,7 @@ class RegLayer(nn.Module):
         #    x = x * (r + 1.)
         #    del r
 
-        x = self.drop(x)
+        #x = self.drop(x)
 
         # print(x.shape)
         x = x.transpose(-2, -1)

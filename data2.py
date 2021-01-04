@@ -1,4 +1,4 @@
-from __future__ import annotations
+#from __future__ import annotations
 
 import json
 import logging
@@ -59,10 +59,10 @@ class Batch:
     trigger_offsets: List[Tuple[int, int]]
     entity_lens: torch.FloatTensor
     trigger_lens: torch.FloatTensor
-    entity_labels_sep: torch.List[torch.LongTensor]
-    trigger_labels_sep: torch.List[torch.LongTensor]
-    relation_labels_sep: torch.List[torch.LongTensor]
-    role_labels_sep: torch.List[torch.LongTensor]
+    entity_labels_sep: List[torch.LongTensor]
+    trigger_labels_sep: List[torch.LongTensor]
+    relation_labels_sep: List[torch.LongTensor]
+    role_labels_sep: List[torch.LongTensor]
     graphs: List[Graph]
     sent_ids: List[str]
     pieces_text: List[List[str]]
@@ -85,7 +85,7 @@ class Span:
     end: int
 
     @staticmethod
-    def from_dict(dict_obj: Dict[str, Any], **kwargs) -> Span:
+    def from_dict(dict_obj: Dict[str, Any], **kwargs):
         return Span(text=dict_obj.get('text', ''),
                     start=dict_obj['start'],
                     end=dict_obj['end'])
@@ -105,7 +105,7 @@ class Entity(Span):
         self.data = {}
 
     @staticmethod
-    def from_dict(dict_obj: Dict[str, Any], **kwargs) -> Entity:
+    def from_dict(dict_obj: Dict[str, Any], **kwargs):
         return Entity(text=dict_obj.get('text', ''),
                       start=dict_obj['start'],
                       end=dict_obj['end'],
@@ -145,7 +145,7 @@ class Trigger(Span):
         self.data = {}
 
     @staticmethod
-    def from_dict(dict_obj: Dict[str, Any], **kwargs) -> Trigger:
+    def from_dict(dict_obj: Dict[str, Any], **kwargs):
         return Trigger(text=dict_obj.get('text', ''),
                        start=dict_obj['start'],
                        end=dict_obj['end'])
@@ -165,7 +165,7 @@ class EventArgument:
         self.data = {}
 
     @staticmethod
-    def from_dict(dict_obj: Dict[str, Any], **kwargs) -> EventArgument:
+    def from_dict(dict_obj: Dict[str, Any], **kwargs):
         return EventArgument(entity_id=dict_obj['entity_id'][:dict_obj['entity_id'].rfind("-")],
                              mention_id=dict_obj['entity_id'],
                              role=dict_obj['role'],
@@ -194,7 +194,7 @@ class Event:
         self.data = {}
 
     @staticmethod
-    def from_dict(dict_obj: Dict[str, Any], **kwargs) -> Event:
+    def from_dict(dict_obj: Dict[str, Any], **kwargs):
         return Event(event_id=dict_obj['event_id'],
                      mention_id=dict_obj['mention_id'],
                      trigger=Trigger.from_dict(dict_obj['trigger']),
@@ -708,7 +708,7 @@ class IEDataset(Dataset):
 
     def tensorize_sentence(self,
                            sentence: Sentence,
-                           vocabs: Dict[Dict[str, int]],
+                           vocabs,
                            ontology,
                            max_entity_len: int,
                            max_trigger_len: int

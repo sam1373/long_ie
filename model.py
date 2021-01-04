@@ -156,11 +156,11 @@ class OneIEpp(nn.Module):
 
         #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
 
-        self.is_start_clf = Linears([token_initial_dim, 200, 2])
-        self.len_from_here_clf = Linears([token_initial_dim, 200, 8])
-        self.type_clf = Linears([token_initial_dim, 200, len(vocabs['entity'])])
+        self.is_start_clf = Linears([token_initial_dim, 500, 2])
+        self.len_from_here_clf = Linears([token_initial_dim, 500, 8])
+        self.type_clf = Linears([token_initial_dim, 500, len(vocabs['entity'])])
 
-        self.coref_embed = Linears([token_initial_dim, 200, coref_embed_dim])
+        self.coref_embed = Linears([token_initial_dim, 500, coref_embed_dim])
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
 
         #self.importance_score = Linears([token_initial_dim, 128, 1])
@@ -174,7 +174,7 @@ class OneIEpp(nn.Module):
         self.span_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                 vocabs=vocabs,
                                                 final_pred_embeds=False,
-                                                num_layers=3)
+                                                num_layers=10)
 
 
         self.word_embed = word_embed
@@ -625,7 +625,7 @@ class OneIEpp(nn.Module):
         if self.config.get('use_extra_word_embed'):
             word_embed_repr = self.word_embed(batch.token_embed_ids)#.detach()
             #if epoch >= 6:
-            word_embed_repr = word_embed_repr.detach()
+            #word_embed_repr = word_embed_repr.detach()
             encoder_outputs = torch.cat((encoder_outputs, word_embed_repr), dim=-1)
 
         #encoded_starts = self.token_start_enc(encoder_outputs)
