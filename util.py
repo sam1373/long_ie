@@ -384,239 +384,6 @@ def label2onehot(tensor: torch.Tensor, label_size: int):
     return tensor_onehot
 
 
-def build_information_graph(batch,
-                            all_scores,
-                            local_scores,
-                            entity_idxs,
-                            entity_nums,
-                            trigger_idxs,
-                            trigger_nums,
-                            vocabs):
-    entity_itos = {i: s for s, i in vocabs['entity'].items()}
-    trigger_itos = {i: s for s, i in vocabs['event'].items()}
-    relation_itos = {i: s for s, i in vocabs['relation'].items()}
-    role_itos = {i: s for s, i in vocabs['role'].items()}
-
-    # relation_size = (len(relation_itos) - 1) // 2 + 1
-
-    graphs = []
-    for graph_idx in range(batch.batch_size):
-        entity_num = entity_nums[graph_idx]
-        trigger_num = trigger_nums[graph_idx]
-        entity_idx_map = {}
-        trigger_idx_map = {}
-
-        inst_scores = all_scores[graph_idx]
-        inst_entity_idxs = entity_idxs[graph_idx][:entity_num]
-        inst_trigger_idxs = trigger_idxs[graph_idx][:trigger_num]
-        inst_entity_offsets = [batch.entity_offsets[i] for i in inst_entity_idxs]
-        inst_trigger_offsets = [batch.trigger_offsets[i] for i in inst_trigger_idxs]
-
-        # Predict entities
-        entities = []
-        entity_scores = inst_scores[-1].get('entity', None)
-        if entity_scores is not None:
-            entity_scores = entity_scores[:entity_num]
-            entity_type_idxs = entity_scores.max(1)[1].tolist()
-
-            for idx, entity_type_idx in enumerate(entity_type_idxs):
-                if entity_type_idx > 0:
-                    entity_type = entity_itos[entity_type_idx]
-                    start, end = inst_entity_offsets[idx]
-                    entities.append((start, end, entity_type))
-                    entity_idx_map[idx] = len(entity_idx_map)
-
-        # Predict triggers
-        triggers = []
-        trigger_scores = inst_scores[-1].get('trigger', None)
-        if trigger_scores is not None:
-            trigger_scores = trigger_scores[:trigger_num]
-            trigger_type_idxs = trigger_scores.max(1)[1].tolist()
-
-            for idx, trigger_type_idx in enumerate(trigger_type_idxs):
-                if trigger_type_idx > 0:
-                    trigger_type = trigger_itos[trigger_type_idx]
-                    start, end = inst_trigger_offsets[idx]
-                    triggers.append((start, end, trigger_type))
-                    trigger_idx_map[idx] = len(trigger_idx_map)
-
-        # Predict relation
-        relations = []
-        relation_scores = inst_scores[-1].get('relation', None)
-        if relation_scores is not None:
-            for entity_i in range(entity_num):
-                for entity_j in range(entity_i + 1, entity_num):
-
-                    if entity_i not in entity_idx_map or entity_j not in entity_idx_map:
-                        # Skip entity i or entity j is NULL
-                        continue
-
-                    relation_score_1 = relation_scores[entity_i * (entity_num - 1) + entity_j - 1].tolist()
-                    relation_score_2 = relation_scores[entity_j * (entity_num - 1) + entity_i].tolist()
-                    relation_score = [max(i, j) for i, j in zip(relation_score_1, relation_score_2)]
-
-                    max_idx, max_value = argmax(relation_score)
-                    if max_idx != 0:
-                        entity_i_idx = entity_idx_map[entity_i]
-                        entity_j_idx = entity_idx_map[entity_j]
-                        relation_type = relation_itos[max_idx]
-
-                        relations.append((entity_i_idx,
-                                          entity_j_idx,
-                                          relation_type))
-
-        # Predict role
-        roles = []
-        role_scores = inst_scores[-1].get('role', None)
-        if role_scores is not None:
-            for trigger_idx in range(trigger_num):
-                for entity_idx in range(entity_num):
-
-                    if trigger_idx not in trigger_idx_map or entity_idx not in entity_idx_map:
-                        # Skip if the trigger or entity is NULL
-                        continue
-
-                    role_score = role_scores[trigger_idx * entity_num + entity_idx].tolist()
-                    max_idx, max_value = argmax(role_score)
-                    if max_idx != 0:
-                        trigger_idx_new = trigger_idx_map[trigger_idx]
-                        entity_idx_new = entity_idx_map[entity_idx]
-                        role_type = role_itos[max_idx]
-
-                        # if ontology.is_valid_role(triggers[trigger_idx_new][-1],
-                        #                          role_type):
-                        roles.append((trigger_idx_new,
-                                      entity_idx_new,
-                                      role_type))
-
-        graphs.append(Graph(entities, triggers, relations, roles))
-    return graphs
-
-
-def build_local_information_graph(batch,
-                                  gnn_scores,
-                                  all_scores,
-                                  entity_idxs,
-                                  entity_nums,
-                                  trigger_idxs,
-                                  trigger_nums,
-                                  candidate_span_scores,
-                                  vocabs):
-    entity_itos = {i: s for s, i in vocabs['entity'].items()}
-    trigger_itos = {i: s for s, i in vocabs['event'].items()}
-    relation_itos = {i: s for s, i in vocabs['relation'].items()}
-    role_itos = {i: s for s, i in vocabs['role'].items()}
-
-    candidates = []
-    candidate_scores = []
-
-    graphs = []
-    for graph_idx in range(batch.batch_size):
-        entity_num = entity_nums[graph_idx]
-        trigger_num = trigger_nums[graph_idx]
-        entity_idx_map = {}
-        trigger_idx_map = {}
-
-        inst_entity_idxs = entity_idxs[graph_idx]  # [:entity_num]
-        inst_trigger_idxs = trigger_idxs[graph_idx]  # [:trigger_num]
-        inst_entity_offsets = [batch.entity_offsets[i] for i in inst_entity_idxs]
-        inst_trigger_offsets = [batch.trigger_offsets[i] for i in inst_trigger_idxs]
-
-        # Predict candidate spans
-        candidates = []
-        # candidate_span_scores = all_scores['candidate']  # [graph_idx]
-        # candidate_span_scores = candidate_span_scores[:entity_num]
-        # candidate_is_predicted = candidate_span_scores[graph_idx].max(1)[1].tolist()
-        candidate_scores = candidate_span_scores[graph_idx].softmax(1)[:, 1].tolist()
-        for idx in range(len(candidate_scores)):
-            if candidate_scores[idx] > 0.5:
-                start, end = batch.entity_offsets[idx]
-                candidates.append((start, end))
-
-        # Predict entities
-        entities = []
-        entity_scores = all_scores['entity']  # [graph_idx]
-        if entity_scores.size(0) > 0 and entity_num:
-            entity_scores = entity_scores[:entity_num]
-            entity_type_idxs = entity_scores.max(1)[1].tolist()
-            for idx, entity_type_idx in enumerate(entity_type_idxs):
-                if entity_type_idx > 0:
-                    entity_type = entity_itos[entity_type_idx]
-                    start, end = inst_entity_offsets[idx]
-                    entities.append((start, end, entity_type))
-                    entity_idx_map[idx] = len(entity_idx_map)
-
-        # Predict triggers
-        triggers = []
-        trigger_scores = all_scores['trigger']  # [graph_idx]
-        if trigger_scores.size(0) > 0 and trigger_num:
-            trigger_scores = trigger_scores[:trigger_num]
-            trigger_type_idxs = trigger_scores.max(1)[1].tolist()
-
-            for idx, trigger_type_idx in enumerate(trigger_type_idxs):
-                if trigger_type_idx > 0:
-                    trigger_type = trigger_itos[trigger_type_idx]
-                    start, end = inst_trigger_offsets[idx]
-                    triggers.append((start, end, trigger_type))
-                    trigger_idx_map[idx] = len(trigger_idx_map)
-
-        # Predict relations
-        relations = []
-        if entity_num > 1:
-            relation_scores = all_scores['relation']  # [:entity_num, :entity_num - 1]
-            if relation_scores is not None and relation_scores.size(0) > 0:
-                relation_scores = relation_scores.view(entity_num, entity_num - 1, -1)
-                for entity_i in range(entity_num):
-                    for entity_j in range(entity_i + 1, entity_num):
-                        if entity_i not in entity_idx_map or entity_j not in entity_idx_map:
-                            # Skip entity i or entity j is NULL
-                            continue
-
-                        # relation_score_1 = relation_scores[entity_i * (entity_num - 1) + entity_j - 1].tolist()
-                        # relation_score_2 = relation_scores[entity_j * (entity_num - 1) + entity_i].tolist()
-                        relation_score_1 = relation_scores[entity_i, entity_j - 1].tolist()
-                        relation_score_2 = relation_scores[entity_j, entity_i].tolist()
-                        relation_score = [max(i, j) for i, j in zip(relation_score_1, relation_score_2)]
-
-                        max_idx, max_value = argmax(relation_score)
-                        if max_idx != 0:
-                            entity_i_idx = entity_idx_map[entity_i]
-                            entity_j_idx = entity_idx_map[entity_j]
-                            relation_type = relation_itos[max_idx]
-
-                            relations.append((entity_i_idx,
-                                              entity_j_idx,
-                                              relation_type))
-
-        # Predict role
-        roles = []
-        if trigger_num and entity_num:
-            role_scores = all_scores['role']  # [graph_idx]
-            if role_scores is not None and role_scores.size(0) > 0:
-                role_scores = role_scores.view(trigger_num, entity_num, -1)
-                for trigger_idx in range(trigger_num):
-                    for entity_idx in range(entity_num):
-
-                        if trigger_idx not in trigger_idx_map or entity_idx not in entity_idx_map:
-                            # Skip if the trigger or entity is NULL
-                            continue
-
-                        # role_score = role_scores[trigger_idx * entity_num + entity_idx].sigmoid().tolist()
-                        role_score = role_scores[trigger_idx, entity_idx].tolist()
-                        max_idx, max_value = argmax(role_score)
-                        if max_idx != 0 and max_value > 0:
-                            trigger_idx_new = trigger_idx_map[trigger_idx]
-                            entity_idx_new = entity_idx_map[entity_idx]
-                            role_type = role_itos[max_idx]
-
-                            # if ontology.is_valid_role(triggers[trigger_idx_new][-1],
-                            #                        role_type):
-                            roles.append((trigger_idx_new,
-                                          entity_idx_new,
-                                          role_type))
-
-        graphs.append(Graph(entities, triggers, relations, roles))
-    return graphs, candidates, candidate_scores
 
 
 from sklearn.cluster import DBSCAN, OPTICS
@@ -627,6 +394,7 @@ def build_information_graph(batch,
                             len_from_here,
                             type_pred,
                             coref_embeds,
+                            relation_pred,
                             vocabs):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
@@ -668,7 +436,20 @@ def build_information_graph(batch,
                 #if type != 0:
                 entities.append((start, end, entity_itos[type]))
 
-        graphs.append(Graph(entities, [], [], [], coref_preds))
+        entity_num = cur_ent
+
+        relations = []
+
+        rel_matrix = relation_pred[graph_idx].view(entity_num, entity_num, -1)
+
+        for i in range(entity_num):
+            for j in range(i + 1, entity_num):
+                rel_pred = rel_matrix[i, j].argmax().item()
+
+                if rel_pred > 0:
+                    relations.append((i, j, relation_itos[rel_pred]))
+
+        graphs.append(Graph(entities, [], relations, [], coref_preds))
 
     return graphs
 
@@ -698,8 +479,8 @@ def summary_graph(pred_graph, true_graph, batch,
                   writer, global_step, prefix, vocabs, coref_embeds=None):
 
 
-
-    coref_embeds = coref_embeds[0]
+    if coref_embeds is not None:
+        coref_embeds = coref_embeds[0]
 
     tokens = batch.tokens[0]
 
@@ -753,7 +534,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     cur_idx = 0
 
-    print(entity_num, entity_num * (entity_num - 1), batch.coref_labels.shape)
+    print(entity_num, entity_num ** 2)
 
     for i in range(entity_num):
         for j in range(entity_num):
@@ -1158,11 +939,11 @@ def elem_max(t1, t2):
     return torch.max(combined, dim=-1)[0].squeeze(-1)
 
 
-def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagnol: bool = False):
+def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagonal: bool = False):
     idxs1, idxs2 = [], []
     for i in range(num1):
         for j in range(num2):
-            if i == j and skip_diagnol:
+            if i == j and skip_diagonal:
                 continue
             idxs1.append(i)
             idxs2.append(j)

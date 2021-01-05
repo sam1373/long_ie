@@ -616,19 +616,21 @@ class IEDataset(Dataset):
         tokens = sentence.tokens
         if self.ws_model is not None and swap_prob > 0:
             if len(tokens) > 50 or random() < 0.2:
-                st = randrange(0, max(1, len(tokens) - 500))
-                end = st + 500
-                end = min(len(tokens), end)
+                #st = randrange(0, max(1, len(tokens) - 500))
+                #run on each 500-token segment
+                for st in range(0, len(tokens), 500):
+                    end = st + 500
+                    end = min(len(tokens), end)
 
-                tokens_orig = tokens[st:end]
+                    tokens_orig = tokens[st:end]
 
-                #print(tokens_orig)
+                    #print(tokens_orig)
 
-                tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
+                    tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
 
-                #print(tokens_aug)
+                    #print(tokens_aug)
 
-                tokens[st:end] = tokens_aug
+                    tokens[st:end] = tokens_aug
         #print(tokens)
         pieces = []
         for i, word in enumerate(tokens):
@@ -810,26 +812,34 @@ class IEDataset(Dataset):
                                                         config.get('max_trigger_len', 2))
                                 for sent in doc.sentences)
 
-    def get_relation_labels(self, relations, entity_uids):
-        entity_num = len(entity_uids)
-        labels = [0] * entity_num * (entity_num - 1)
+    def get_relation_labels(self, relations, entities):
+        entity_num = len(entities)
+        labels = [[0] * entity_num for i in range(entity_num)]
         for relation in relations:
             relation_type = relation.relation_type_idx
             relation_type_rev = relation.relation_type_idx_rev
-            arg1 = relation.arg1.uid
-            arg2 = relation.arg2.uid
+            arg1 = relation.arg1.entity_id
+            arg2 = relation.arg2.entity_id
             if arg1 == arg2:
                 continue
-            arg1 = entity_uids.index(arg1)
-            arg2 = entity_uids.index(arg2)
-            if arg1 > arg2:
+            #arg1 = entity_uids.index(arg1)
+            #arg2 = entity_uids.index(arg2)
+            for i in range(entity_num):
+                for j in range(entity_num):
+                    if entities[i].entity_id == arg1 and entities[j].entity_id == arg2:
+                        labels[i][j] = relation_type
+                        labels[j][i] = relation_type
+                    if entities[j].entity_id == arg1 and entities[i].entity_id == arg2:
+                        labels[i][j] = relation_type
+                        labels[j][i] = relation_type
+            """if arg1 > arg2:
                 labels[arg1 * (entity_num - 1) + arg2] = relation_type
                 # Reverse link
                 labels[arg2 * (entity_num - 1) + arg1 - 1] = relation_type
             else:
                 labels[arg1 * (entity_num - 1) + arg2 - 1] = relation_type
                 # Reverse link
-                labels[arg2 * (entity_num - 1) + arg1] = relation_type
+                labels[arg2 * (entity_num - 1) + arg1] = relation_type"""
         return labels
 
     def get_role_labels(self,
@@ -1055,13 +1065,13 @@ class IEDataset(Dataset):
 
             # Relation labels
             inst_relation_labels = self.get_relation_labels(inst['relations'],
-                                                            inst_pos_entity_uids)
+                                                            inst['entities'])
                                                             # max_entity_num)
             relation_labels_sep.append(inst_relation_labels)
             # print(inst_relation_labels)
             # for x in inst_relation_labels:
             #     relation_labels.extend(x)
-            relation_labels.extend(inst_relation_labels)
+            relation_labels.append(inst_relation_labels)
 
             entity_num = len(inst['entities'])
 

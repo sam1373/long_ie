@@ -17,7 +17,7 @@ from config import Config
 from data2 import IEDataset
 from scorer import score_graphs
 from util import generate_vocabs, load_valid_patterns, save_result, best_score_by_task, \
-    build_information_graph, build_local_information_graph, label2onehot, load_model, \
+    build_information_graph, label2onehot, load_model, \
     summary_graph, load_word_embed
 
 from torch.utils.tensorboard import SummaryWriter
@@ -115,7 +115,7 @@ else:
     dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
     test_set = IEDataset(config.file_dir + config.test_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
 
-cur_swap_prob = 0
+cur_swap_prob = 0.
 
 print('Processing data')
 train_set.process(tokenizer, max_sent_len, cur_swap_prob)
@@ -303,8 +303,8 @@ for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0:
-        if epoch % 5 == 0 and cur_swap_prob < 0.4:
-            cur_swap_prob += 0.05
+        if epoch % 2 == 0 and cur_swap_prob < 0.2:
+            cur_swap_prob += 0.02
             print("swap prob increased to", cur_swap_prob)
 
         if cur_swap_prob > 0:
@@ -376,7 +376,7 @@ for epoch in range(epoch_num):
 
                     pred_graphs = build_information_graph(batch, *result, vocabs)
 
-                    coref_embeds = result[-1]
+                    coref_embeds = result[-2]
 
                     pred_train_graphs.extend(pred_graphs)
                     gold_train_graphs.extend(batch.graphs)
@@ -406,7 +406,7 @@ for epoch in range(epoch_num):
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
             result = model.predict(batch, epoch=epoch)
 
-            coref_embeds = result[-1]
+            coref_embeds = result[-2]
 
             #max_entity_pred = max(max_entity_pred, result[3][0])
 

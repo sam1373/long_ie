@@ -35,7 +35,7 @@ def get_pairwise_idxs(num1: int, num2: int, skip_diagonal: bool = False):
             if i == j and skip_diagonal:
                 continue
             idxs.append(i)
-            idxs.append(j + num1)
+            idxs.append(j)
     return idxs
 
 
@@ -159,6 +159,8 @@ class OneIEpp(nn.Module):
         self.is_start_clf = Linears([token_initial_dim, 500, 2])
         self.len_from_here_clf = Linears([token_initial_dim, 500, 8])
         self.type_clf = Linears([token_initial_dim, 500, len(vocabs['entity'])])
+
+        self.relation_clf = Linears([token_initial_dim * 2, 500, 500, len(vocabs['relation'])])
 
         self.coref_embed = Linears([token_initial_dim, 500, coref_embed_dim])
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
@@ -326,252 +328,7 @@ class OneIEpp(nn.Module):
 
         return span_repr
 
-    def predict_spans(self,
-                      span_scores: torch.Tensor,
-                      mask: torch.Tensor):
-        batch_size = span_scores.size(0)
-        # Predict labels
-        span_scores = span_scores.softmax(2)
-        _, predicted = span_scores.max(2)
-        # Mask invalid spans
-        predicted = predicted * mask
-        predicted = predicted.nonzero(as_tuple=False)
 
-        predicted_idxs = [[] for _ in range(batch_size)]
-        for i, j in predicted.tolist():
-            predicted_idxs[i].append(j)
-        span_nums = [len(x) for x in predicted_idxs]
-        max_span_num = max(1, max(span_nums))
-        predicted_idxs = [x + [0] * (max_span_num - len(x))
-                          for x in predicted_idxs]
-        predicted_idxs = mask.new_tensor(predicted_idxs)
-
-        return predicted_idxs, span_nums
-
-    def get_local_scores(self,
-                         encoder_outputs: torch.Tensor,
-                         batch,
-                         predict: bool = False):
-        batch_size, seq_len, _ = encoder_outputs.size()
-        # Get entity representations
-        entity_repr = self.get_span_representations(encoder_outputs,
-                                                    batch.entity_idxs,
-                                                    batch.entity_mask,
-                                                    batch.entity_lens,
-                                                    batch.entity_boundaries,
-                                                    batch.max_entity_len)
-        repr_dim = entity_repr.size(-1)
-        # Calculate entity type scores
-        entity_score = self.entity_classifier(entity_repr)
-        # Calculate mention type scores
-        mention_score = self.mention_classifier(entity_repr)
-
-        # Get trigger representations
-        trigger_repr = self.get_span_representations(encoder_outputs,
-                                                     batch.trigger_idxs,
-                                                     batch.trigger_mask,
-                                                     batch.trigger_lens,
-                                                     batch.trigger_boundaries,
-                                                     batch.max_trigger_len)
-        # Calculate event type scores
-        event_score = self.event_classifier(trigger_repr)
-
-        # Select positive entities
-        if predict:
-            pos_entity_idxs, entity_span_nums = self.predict_spans(entity_score,
-                                                                   batch.entity_span_mask)
-        else:
-            pos_entity_idxs = batch.pos_entity_idxs
-        pos_entity_idxs_exp = pos_entity_idxs.unsqueeze(-1).expand(-1, -1, repr_dim)
-        pos_entity_repr = entity_repr.gather(1, pos_entity_idxs_exp)
-        entity_num = pos_entity_repr.size(1)
-
-        # Select positive triggers
-        if predict:
-            pos_trigger_idxs, trigger_span_nums = self.predict_spans(event_score,
-                                                                     batch.trigger_span_mask)
-        else:
-            pos_trigger_idxs = batch.pos_trigger_idxs
-        pos_trigger_idxs_exp = pos_trigger_idxs.unsqueeze(-1).expand(-1, -1, repr_dim)
-        pos_trigger_repr = trigger_repr.gather(1, pos_trigger_idxs_exp)
-        trigger_num = pos_trigger_repr.size(1)
-
-        # Get relation representation
-        # TODO: transform before concatenate
-        relation_idxs = get_pairwise_idxs(entity_num, entity_num, True)
-        relation_idxs = (pos_entity_idxs.new(relation_idxs)
-                         .unsqueeze(0)
-                         .unsqueeze(-1)
-                         .expand(batch_size, -1, repr_dim))
-        relation_repr = (torch.cat([pos_entity_repr, pos_entity_repr], dim=1)
-                         .gather(1, relation_idxs)
-                         .view(batch_size, -1, 2 * repr_dim))
-        # Calculate relation scores
-        relation_score = self.relation_classifier(relation_repr)
-        # Get arg role representation
-        role_idxs = get_pairwise_idxs(trigger_num, entity_num)
-        role_idxs = (pos_entity_idxs.new(role_idxs)
-                     .unsqueeze(0)
-                     .unsqueeze(-1)
-                     .expand(batch_size, -1, repr_dim))
-        role_repr = (torch.cat([pos_trigger_repr, pos_entity_repr], dim=1)
-                     .gather(1, role_idxs)
-                     .view(batch_size, -1, 2 * repr_dim))
-        # Calculate role scores
-        role_score = self.role_classifier(role_repr)
-
-        entity_score = entity_score.view(-1, entity_score.size(-1))
-        mention_score = mention_score.view(-1, mention_score.size(-1))
-        event_score = event_score.view(-1, event_score.size(-1))
-        relation_score = relation_score.view(-1, relation_score.size(-1))
-        role_score = role_score.view(-1, role_score.size(-1))
-
-        if predict:
-            return (entity_score, event_score, relation_score, role_score,
-                    mention_score, pos_entity_idxs, pos_trigger_idxs,
-                    entity_span_nums, trigger_span_nums)
-        else:
-            return (entity_score, event_score, relation_score, role_score,
-                    mention_score, pos_entity_idxs, pos_trigger_idxs)
-
-    def build_graphs(self,
-                     entity_nums: List[int],
-                     trigger_nums: List[int],
-                     device):
-        # print('build graph entity nums', entity_nums)
-        graphs = []
-        for idx, (entity_num, trigger_num) in enumerate(
-                zip(entity_nums, trigger_nums)):
-            # Construct a complete graph
-            entity_nodes = torch.arange(entity_num)
-            trigger_nodes = torch.arange(trigger_num)
-
-            relation_src_nodes = [i for i in range(entity_num) for _ in range(entity_num - 1)]
-            relation_dst_nodes = [j for i in range(entity_num) for j in range(entity_num) if i != j]
-            relation_src_nodes = torch.LongTensor(relation_src_nodes)
-            relation_dst_nodes = torch.LongTensor(relation_dst_nodes)
-
-            role_src_nodes = [i for i in range(trigger_num) for _ in range(entity_num)]
-            role_dst_nodes = [j for _ in range(trigger_num) for j in range(entity_num)]
-            role_src_nodes = torch.LongTensor(role_src_nodes)
-            role_dst_nodes = torch.LongTensor(role_dst_nodes)
-
-            data_dict = {
-                ('entity', 'relation', 'entity'): (relation_src_nodes, relation_dst_nodes),
-                ('trigger', 'role', 'entity'): (role_src_nodes, role_dst_nodes),
-                ('entity', 'role_rev', 'trigger'): (role_dst_nodes, role_src_nodes),
-
-                # Add self links
-                ('entity', 'entity_self', 'entity'): (entity_nodes, entity_nodes),
-                ('trigger', 'trigger_self', 'trigger'): (trigger_nodes,
-                                                         trigger_nodes)
-            }
-            graph = dgl.heterograph(data_dict)
-            graphs.append(graph.to(device))
-        return graphs
-
-    def run_gnn(self,
-                graphs: List[dgl.DGLHeteroGraph],
-                reprs: Dict[str, torch.Tensor],
-                scores: Dict[str, torch.Tensor],
-                entity_nums: List[int],
-                trigger_nums: List[int],
-                predict: bool=False) -> List[List[Dict[str, torch.Tensor]]]:
-        """Run the GNN to update node and edge features.
-
-        Args:
-            graphs (List[dgl.DGLHeteroGraph]): A list of DGLHeteroGraph objects.
-            reprs (Dict[str, torch.Tensor]): A dict of node representation tensors.
-            scores (Dict[str, torch.Tensor]): A dict of node and edge score tensors.
-            entity_nums (List[int]): A list of entity numbers.
-            trigger_nums (List[int]): A list of trigger numbers.
-
-        Returns:
-            List[List[Dict[str, torch.Tensor]]]: A list of lists of predicted score dicts. The i-th list is the score
-            list for the i-th graph, where the j-th element is a score dict predicted by the j-th GNN layer.
-        """
-        all_scores = []
-        for graph_idx, graph in enumerate(graphs):
-            entity_num = entity_nums[graph_idx]
-            trigger_num = trigger_nums[graph_idx]
-            nfeats, efeats = {}, {}
-            if entity_num:
-                entity_repr = reprs['entity'][graph_idx][:entity_num]
-                entity_score = scores['entity'][graph_idx][:entity_num]
-                nfeats['entity'] = torch.cat([entity_repr, entity_score], dim=1)
-                # Relation
-                if entity_num > 1:
-                    if predict:
-                        relation_score = scores['relation'][graph_idx][:entity_num, :entity_num - 1]
-                        relation_score = relation_score.contiguous().view(-1, relation_score.size(-1))
-                    else:
-                        relation_score = scores['relation'][graph_idx]
-                    efeats['relation'] = relation_score
-
-            if trigger_num:
-                trigger_repr = reprs['trigger'][graph_idx][:trigger_num]
-                trigger_score = scores['trigger'][graph_idx][:trigger_num]
-                nfeats['trigger'] = torch.cat([trigger_repr, trigger_score], dim=1)
-                if entity_num:
-                    if predict:
-                        role_score = scores['role'][graph_idx][:trigger_num, :entity_num]
-                        role_score = role_score.contiguous().view(-1, role_score.size(-1))
-                    else:
-                        role_score = scores['role'][graph_idx]
-                    efeats['role'] = role_score
-                    efeats['role_rev'] = role_score
-
-            # Edge features
-            all_scores.append(self.gnn(graph, nfeats, efeats))
-        return all_scores
-
-    def reshape_local_scores(self,
-                             entity_span_score,
-                             trigger_span_score,
-                             relation_score,
-                             role_score,
-                             entity_nums,
-                             trigger_nums):
-        # entity_span_score_ = entity_span_score
-        # trigger_span_score_ = trigger_span_score
-        entity_span_score = entity_span_score.view(-1, entity_span_score.size(-1))
-        trigger_span_score = trigger_span_score.view(-1, trigger_span_score.size(-1))
-        relation_score_list = []
-        role_score_list = []
-        if self.config.get("classify_relations") or self.config.get("classify_roles"):
-            for idx, (entity_num, trigger_num) in enumerate(zip(entity_nums, trigger_nums)):
-                if entity_num:
-                    if self.config.get("classify_relations"):
-                        inst_relation_score = relation_score[idx][:entity_num, :entity_num - 1]
-                        inst_relation_score = inst_relation_score.contiguous().view(-1, inst_relation_score.size(-1))
-                        relation_score_list.append(inst_relation_score)
-                    if trigger_num:
-                        if self.config.get("classify_roles"):
-                            inst_role_score = role_score[idx][:trigger_num, :entity_num]
-                            inst_role_score = inst_role_score.contiguous().view(-1, inst_role_score.size(-1))
-                            role_score_list.append(inst_role_score)
-                    else:
-                        role_score_list.append(None)
-                else:
-                    relation_score_list.append(None)
-                    role_score_list.append(None)
-
-        relation_score_list_ = [x for x in relation_score_list if x is not None]
-        relation_score = torch.cat(relation_score_list_, dim=0) if relation_score_list_ else None
-
-        role_score_list_ = [x for x in role_score_list if x is not None]
-        role_score = torch.cat(role_score_list_, dim=0) if role_score_list_ else None
-
-        return {
-            'entity': entity_span_score,
-            # 'entity_sep': entity_span_score_,
-            'trigger': trigger_span_score,
-            # 'trigger_sep': trigger_span_score_,
-            'relation': relation_score,
-            # 'relation_sep': relation_score_list,
-            'role': role_score,
-            # 'role_sep': role_score_list,
-        }
 
     def calculate_loss(self,
                        scores: List[List[Dict[str, torch.Tensor]]],
@@ -681,9 +438,20 @@ class OneIEpp(nn.Module):
 
         type_pred = self.type_clf(entity_spans)
 
-        coref_embed = self.coref_embed(entity_spans)
+        if self.config.get("do_coref"):
+            coref_embed = self.coref_embed(entity_spans)
+        else:
+            coref_embed = None
 
-        return is_start_pred, len_from_here_pred, type_pred, coref_embed
+        if self.config.get("classify_relations"):
+            pair_ids = torch.LongTensor(get_pairwise_idxs(entity_spans.shape[1], entity_spans.shape[1])).cuda()
+            entity_pairs = torch.gather(entity_spans, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1, entity_spans.shape[2]))
+            entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_spans.shape[2] * 2)
+            relation_pred = self.relation_clf(entity_pairs)
+        else:
+            relation_pred = None
+
+        return is_start_pred, len_from_here_pred, type_pred, coref_embed, relation_pred
 
         # Generate entity and trigger span representations
         entity_span_repr = self.get_span_representations(encoder_outputs,
@@ -894,7 +662,7 @@ class OneIEpp(nn.Module):
                 return scores, local_scores, span_candidate_score
 
     def forward(self, batch: Batch, last_only: bool = True, epoch=0):
-        is_start, len_from_here, type_pred, coref_embeds = self.forward_nn(batch, epoch=epoch)
+        is_start, len_from_here, type_pred, coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
         loss_names = []
@@ -1017,10 +785,10 @@ class OneIEpp(nn.Module):
                             
             span_rel_label_matrix = []"""
 
-            relation_type = relation_type.view(-1, relation_type.shape[-1])
+            relation_pred = relation_pred.view(-1, relation_pred.shape[-1])
 
-            relation_loss = self.relation_loss(relation_type,
-                                               batch.relation_labels[:relation_type.shape[0]]) * 5.
+            relation_loss = self.criteria(relation_pred,
+                                               batch.relation_labels.view(-1)[:relation_pred.shape[0]])
 
             if not torch.isnan(relation_loss):
                 loss.append(relation_loss)
