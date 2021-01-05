@@ -812,10 +812,12 @@ class IEDataset(Dataset):
                                                         config.get('max_trigger_len', 2))
                                 for sent in doc.sentences)
 
-    def get_relation_labels(self, relations, entities):
+    def get_relation_labels(self, relations, entities, graph):
+        #also adds missing relations to rels list
         entity_num = len(entities)
         labels = [[0] * entity_num for i in range(entity_num)]
-        for relation in relations:
+        rel_set = set([(i[0], i[1]) for i in graph.relations])
+        for rel_id, relation in enumerate(relations):
             relation_type = relation.relation_type_idx
             relation_type_rev = relation.relation_type_idx_rev
             arg1 = relation.arg1.entity_id
@@ -829,9 +831,15 @@ class IEDataset(Dataset):
                     if entities[i].entity_id == arg1 and entities[j].entity_id == arg2:
                         labels[i][j] = relation_type
                         labels[j][i] = relation_type
+                        if (i, j) not in rel_set and (j, i) not in rel_set:
+                            rel_set.add((i, j))
+                            graph.relations.append((i, j, graph.relations[rel_id][2]))
                     if entities[j].entity_id == arg1 and entities[i].entity_id == arg2:
                         labels[i][j] = relation_type
                         labels[j][i] = relation_type
+                        if (i, j) not in rel_set and (j, i) not in rel_set:
+                            rel_set.add((i, j))
+                            graph.relations.append((i, j, graph.relations[rel_id][2]))
             """if arg1 > arg2:
                 labels[arg1 * (entity_num - 1) + arg2] = relation_type
                 # Reverse link
@@ -1065,7 +1073,12 @@ class IEDataset(Dataset):
 
             # Relation labels
             inst_relation_labels = self.get_relation_labels(inst['relations'],
-                                                            inst['entities'])
+                                                            inst['entities'],
+                                                            inst['graph'])
+            #bad to do in collate...
+
+
+
                                                             # max_entity_num)
             relation_labels_sep.append(inst_relation_labels)
             # print(inst_relation_labels)
@@ -1078,7 +1091,7 @@ class IEDataset(Dataset):
             inst_entities_coref = dict()
             inst_mention_to_ent_coref = []
 
-            inst_coref_labels = [0] * (entity_num) * (entity_num - 1)
+            inst_coref_labels = [[0] * (entity_num) for i in range(entity_num)]
             for a in range(entity_num):
                 cur_ent = inst['entities'][a].entity_id
                 if cur_ent not in inst_entities_coref:
@@ -1087,15 +1100,17 @@ class IEDataset(Dataset):
 
                 for b in range(a + 1, entity_num):
                     if cur_ent == inst['entities'][b].entity_id:
-                        inst_coref_labels[b * (entity_num - 1) + a] = 1
+                        inst_coref_labels[b][a] = 1
                         # Reverse link
-                        inst_coref_labels[a * (entity_num - 1) + b - 1] = 1
+                        inst_coref_labels[a][b] = 1
 
-            coref_labels.extend(inst_coref_labels)
+            coref_labels.append(inst_coref_labels)
             entities_coref.append(inst_entities_coref)
             mention_to_ent_coref.append(inst_mention_to_ent_coref)
 
             inst['graph'].coref_matrix = inst_coref_labels
+
+
 
             # Role labels
             inst_role_labels = self.get_role_labels(inst['events'],

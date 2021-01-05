@@ -405,22 +405,26 @@ def build_information_graph(batch,
     graphs = []
     for graph_idx in range(batch.batch_size):
 
-        coref_preds = None
+        #coref_preds = None
+        coref_matrix = None
         if coref_embeds is not None:
             coref_embeds_cur = coref_embeds[graph_idx].cpu().numpy()
             clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
 
-            coref_preds = []
+            #coref_preds = []
+            coref_matrix = []
+
             for i in range(coref_embeds_cur.shape[0]):
-                # new_l = []
+                new_l = []
                 for j in range(coref_embeds_cur.shape[0]):
-                    if i == j:
-                        continue
+
                     if clustering.labels_[i] == clustering.labels_[j] and clustering.labels_[i] != -1:
-                        coref_preds.append(1)
-                        # new_l.append(1)
+                        #coref_preds.append(1)
+                        new_l.append(1)
                     else:
-                        coref_preds.append(0)
+                        #coref_preds.append(0)
+                        new_l.append(0)
+                coref_matrix.append(new_l)
 
         entities = []
 
@@ -440,16 +444,17 @@ def build_information_graph(batch,
 
         relations = []
 
-        rel_matrix = relation_pred[graph_idx].view(entity_num, entity_num, -1)
+        if relation_pred is not None:
+            rel_matrix = relation_pred[graph_idx].view(entity_num, entity_num, -1)
 
-        for i in range(entity_num):
-            for j in range(i + 1, entity_num):
-                rel_pred = rel_matrix[i, j].argmax().item()
+            for i in range(entity_num):
+                for j in range(i + 1, entity_num):
+                    rel_pred = rel_matrix[i, j].argmax().item()
 
-                if rel_pred > 0:
-                    relations.append((i, j, relation_itos[rel_pred]))
+                    if rel_pred > 0:
+                        relations.append((i, j, relation_itos[rel_pred]))
 
-        graphs.append(Graph(entities, [], relations, [], coref_preds))
+        graphs.append(Graph(entities, [], relations, [], coref_matrix))
 
     return graphs
 
@@ -532,27 +537,16 @@ def summary_graph(pred_graph, true_graph, batch,
 
     coref_entities = [i for i in range(entity_num)]
 
-    cur_idx = 0
+    #cur_idx = 0
 
     print(entity_num, entity_num ** 2)
 
     for i in range(entity_num):
         for j in range(entity_num):
 
-            if i == j:
-                continue
-
-            if i > j:
-                cur_idx += 1
-                continue
-
-            if cur_idx >= batch.coref_labels.shape[0]:
-                break
-
-            if batch.coref_labels[cur_idx] == 1:
+            if batch.coref_labels[0, i, j] == 1:
                 coref_entities[j] = min(coref_entities[j], i)
 
-            cur_idx += 1
 
     coref_dict = dict()
 
@@ -692,17 +686,9 @@ def summary_graph(pred_graph, true_graph, batch,
         for i in range(entity_num):
             for j in range(entity_num):
 
-                if i == j:
-                    continue
 
-                if i > j:
-                    cur_idx += 1
-                    continue
 
-                if cur_idx >= batch.coref_labels.shape[0]:
-                    break
-
-                if pred_graph.coref_matrix[cur_idx] == 1:
+                if pred_graph.coref_matrix[i][j] == 1:
                     coref_entities[j] = min(coref_entities[j], i)
 
                     pred_coref_pairs.append((predicted_entities[i], predicted_entities[j], torch.norm(coref_embeds[i] - coref_embeds[j]).item()))
