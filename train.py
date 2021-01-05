@@ -103,7 +103,7 @@ tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
 #tokenizer = XLNetTokenizer.from_pretrained("xlnet-base-cased")
 
 wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-generator')
-wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True)
+wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True).cuda()
 
 
 if args.debug:
@@ -267,7 +267,7 @@ if skip_train == False:
         },
         {
             'params': [p for n, p in model.named_parameters() if not n.startswith('encoder')],
-            'lr': 1e-4, 'weight_decay': 1e-4
+            'lr': 1e-3, 'weight_decay': 1e-4
         },
     ]
 

@@ -1193,7 +1193,7 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
 
     tokens_orig = tokens
 
-    tokens = ws_tokenizer.encode(tokens_masked, return_tensors="pt")
+    tokens = ws_tokenizer.encode(tokens_masked, return_tensors="pt").cuda()
 
     # print("Encoded text:")
     ##print("|".join([tokenizer.decode(tok) for tok in inputs['input_ids'].view(-1).tolist()]))

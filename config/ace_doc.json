@@ -38,7 +38,7 @@
     "accumulate_step": 1,
     "batch_size": 1,
     "eval_batch_size": 1,
-    "max_epoch": 100,
+    "max_epoch": 150,
     "learning_rate": 1e-3,
     "bert_learning_rate": 1e-5,
     "weight_decay": 1e-3,
@@ -65,5 +65,5 @@
     "classify_relations": false,
     "classify_triggers": false,
     "classify_roles": false,
-    "do_coref": false
+    "do_coref": true
 }

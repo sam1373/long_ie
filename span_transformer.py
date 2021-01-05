@@ -35,7 +35,7 @@ class SpanTransformer(nn.Module):
 
         self.layers = nn.ModuleList(self.layers)
 
-
+        self.lin = nn.Sequential(nn.Linear(input_dim * 3, input_dim), RegLayer(input_dim))
 
         """self.before_rel_compress = nn.Sequential(nn.Linear(span_dim, span_dim * 2), RegLayer(span_dim * 2),
                                                  nn.Linear(span_dim * 2, span_dim_small), RegLayer(span_dim_small))
@@ -71,7 +71,7 @@ class SpanTransformer(nn.Module):
 
         batch_size = span_repr.shape[0]
 
-        span_reprs = []
+        span_reprs = [span_repr]
 
         for l in self.layers:
 
@@ -87,8 +87,11 @@ class SpanTransformer(nn.Module):
             span_repr = l(span_repr)
             span_reprs.append(span_repr)
 
+        span_repr = torch.cat((span_reprs[0], span_reprs[len(self.layers) // 2], span_reprs[-1]), dim=-1)
 
-        return span_reprs[0] + span_reprs[len(self.layers) // 2] + span_reprs[-1]
+        span_repr = self.lin(span_repr)
+
+        return span_repr
 
 
 
