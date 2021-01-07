@@ -1,5 +1,7 @@
 """Our scorer is adapted from: https://github.com/dwadden/dygiepp"""
 
+from util import get_coref_clusters
+
 def safe_div(num, denom):
     if denom > 0:
         return num / denom
@@ -22,13 +24,52 @@ def convert_arguments(triggers, entities, roles):
     return args
 
 
+def span_match(span_1, span_2, check_type=True):
+    if check_type and span_1[-1] != span_2[-1]:
+        return 0
+    sa, ea, _ = span_1
+    sb, eb, _ = span_2
+    iou = (min(ea, eb) - max(sa, sb)) / (max(eb, ea) - min(sa, sb))
+    return iou
+
+
+def overlap_score(cluster_1, cluster_2, predicted_entities, gold_entities):
+    matched = 0
+    for s1 in cluster_1:
+        matched += 1 if any([span_match(predicted_entities[s1], gold_entities[s2]) > 0.5 for s2 in cluster_2]) else 0
+
+    return matched / len(cluster_1)
+
+
+def compute_cluster_metrics(predicted_clusters, gold_clusters, predicted_entities, gold_entities):
+    matched_predicted = []
+    matched_gold = []
+    for i, p in enumerate(predicted_clusters):
+        for j, g in enumerate(gold_clusters):
+            if overlap_score(p, g, predicted_entities, gold_entities) > 0.5:
+                matched_predicted.append(i)
+                matched_gold.append(j)
+
+    matched_predicted = set(matched_predicted)
+    matched_gold = set(matched_gold)
+
+    #metrics = {
+    #    "p": len(matched_predicted) / (len(predicted_clusters) + 1e-7),
+    #    "r": len(matched_gold) / (len(gold_clusters) + 1e-7),
+    #}
+    #metrics["f1"] = 2 * metrics["p"] * metrics["r"] / (metrics["p"] + metrics["r"] + 1e-7)
+
+    return len(matched_gold)
+
+
 def score_graphs(gold_graphs, pred_graphs,
                  relation_directional=False):
     gold_arg_num = pred_arg_num = arg_idn_num = arg_class_num = 0
     gold_trigger_num = pred_trigger_num = trigger_idn_num = trigger_class_num = 0
-    gold_ent_num = pred_ent_num = ent_match_num = 0
+    gold_ent_num = pred_ent_num = ent_match_num = ent_overlap_match_num = 0
     gold_rel_num = pred_rel_num = rel_match_num = 0
     gold_men_num = pred_men_num = men_match_num = 0
+    gold_cluster_matched = gold_cluster_total = pred_cluster_total = 0
 
     for gold_graph, pred_graph in zip(gold_graphs, pred_graphs):
         # Entity
@@ -38,14 +79,31 @@ def score_graphs(gold_graphs, pred_graphs,
         pred_ent_num += len(pred_entities)
         ent_match_num += len([entity for entity in pred_entities
                               if entity in gold_entities])
+        ent_overlap_match_num += len([entity for entity in pred_entities
+                              if any([span_match(entity, s2) > 0.5 for s2 in gold_entities])])
 
-        # Mention
+        """# Mention
         gold_mentions = gold_graph.mentions
         pred_mentions = pred_graph.mentions
         gold_men_num += len(gold_mentions)
         pred_men_num += len(pred_mentions)
         men_match_num += len([mention for mention in pred_mentions
-                              if mention in gold_mentions])
+                              if mention in gold_mentions])"""
+
+        pred_entity_coref, pred_clusters = get_coref_clusters(pred_graph.coref_matrix)
+        gold_entity_cored, gold_clusters = get_coref_clusters(gold_graph.coref_matrix)
+
+        g_c_m = compute_cluster_metrics(pred_clusters, gold_clusters, pred_entities, gold_entities)
+
+        #print("pred clusters:", pred_clusters)
+        #print("gold clusters:", gold_clusters)
+        #print("matched:", g_c_m)
+
+        gold_cluster_matched += g_c_m
+        #pred_cluster_matched += p_c_m
+
+        gold_cluster_total += len(gold_clusters)
+        pred_cluster_total += len(pred_clusters)
 
         # Relation
         gold_relations = gold_graph.relations
@@ -110,10 +168,14 @@ def score_graphs(gold_graphs, pred_graphs,
                 if gold_class:
                     arg_class_num += 1
 
+
+
     entity_prec, entity_rec, entity_f = compute_f1(
         pred_ent_num, gold_ent_num, ent_match_num)
-    mention_prec, mention_rec, mention_f = compute_f1(
-        pred_men_num, gold_men_num, men_match_num)
+    entity_overlap_prec, entity_overlap_rec, entity_overlap_f = compute_f1(
+        pred_ent_num, gold_ent_num, ent_overlap_match_num)
+    #mention_prec, mention_rec, mention_f = compute_f1(
+    #    pred_men_num, gold_men_num, men_match_num)
     trigger_id_prec, trigger_id_rec, trigger_id_f = compute_f1(
         pred_trigger_num, gold_trigger_num, trigger_idn_num)
     trigger_prec, trigger_rec, trigger_f = compute_f1(
@@ -124,11 +186,16 @@ def score_graphs(gold_graphs, pred_graphs,
         pred_arg_num, gold_arg_num, arg_idn_num)
     role_prec, role_rec, role_f = compute_f1(
         pred_arg_num, gold_arg_num, arg_class_num)
+    cluster_prec, cluster_rec, cluster_f = compute_f1(
+        pred_cluster_total, gold_cluster_total, gold_cluster_matched
+    )
 
     print('Entity: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         entity_prec * 100.0, entity_rec * 100.0, entity_f * 100.0))
-    print('Mention: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
-        mention_prec * 100.0, mention_rec * 100.0, mention_f * 100.0))
+    print('Entity Overlap 0.5: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+        entity_overlap_prec * 100.0, entity_overlap_rec * 100.0, entity_overlap_f * 100.0))
+    #print('Mention: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+    #    mention_prec * 100.0, mention_rec * 100.0, mention_f * 100.0))
     print('Trigger identification: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         trigger_id_prec * 100.0, trigger_id_rec * 100.0, trigger_id_f * 100.0))
     print('Trigger: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
@@ -139,9 +206,12 @@ def score_graphs(gold_graphs, pred_graphs,
         role_id_prec * 100.0, role_id_rec * 100.0, role_id_f * 100.0))
     print('Role: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         role_prec * 100.0, role_rec * 100.0, role_f * 100.0))
+    print('Entity Clusters: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+        cluster_prec * 100.0, cluster_rec * 100.0, cluster_f * 100.0))
 
     scores = {
         'entity': {'prec': entity_prec, 'rec': entity_rec, 'f': entity_f},
+        'entity_overlap': {'prec': entity_overlap_prec, 'rec': entity_overlap_rec, 'f': entity_overlap_f},
         #'mention': {'prec': mention_prec, 'rec': mention_rec, 'f': mention_f},
         'trigger': {'prec': trigger_prec, 'rec': trigger_rec, 'f': trigger_f},
         'trigger_id': {'prec': trigger_id_prec, 'rec': trigger_id_rec,
@@ -149,7 +219,8 @@ def score_graphs(gold_graphs, pred_graphs,
         'role': {'prec': role_prec, 'rec': role_rec, 'f': role_f},
         'role_id': {'prec': role_id_prec, 'rec': role_id_rec, 'f': role_id_f},
         'relation': {'prec': relation_prec, 'rec': relation_rec,
-                     'f': relation_f}
+                     'f': relation_f},
+        'entity_clusters': {'prec': cluster_prec, 'rec': cluster_rec, 'f': cluster_f}
     }
     return scores
 

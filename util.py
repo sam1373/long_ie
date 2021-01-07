@@ -412,7 +412,7 @@ def build_information_graph(batch,
 
             #coref_matrix = np.linalg.norm(coref_embeds_cur[:, None, :] - coref_embeds_cur[None, :, :], axis=-1)
 
-            clustering = AgglomerativeClustering().fit(coref_embeds_cur)
+            clustering = AgglomerativeClustering(distance_threshold=2.).fit(coref_embeds_cur)
 
             #coref_preds = []
             coref_matrix = []
@@ -478,6 +478,34 @@ def load_model(path, model, device=0, gpu=True):
 
     return model, vocabs, optimizer
 
+def get_coref_clusters(coref_matrix):
+
+    if not isinstance(coref_matrix, list):
+        coref_matrix = coref_matrix.tolist()
+
+    entity_num = len(coref_matrix)
+
+    coref_entities = list(range(entity_num))
+
+    for i in range(entity_num):
+        for j in range(entity_num):
+
+            if coref_matrix[i][j] == 1:
+                coref_entities[j] = min(coref_entities[j], i)
+
+    coref_dict = dict()
+
+    coref_cluster_lists = []
+
+    for i in range(entity_num):
+        if coref_entities[i] not in coref_dict:
+            coref_dict[coref_entities[i]] = len(coref_dict)
+            coref_cluster_lists.append([])
+        coref_entities[i] = coref_dict[coref_entities[i]]
+
+        coref_cluster_lists[coref_entities[i]].append(i)
+
+    return coref_entities, coref_cluster_lists
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -496,18 +524,23 @@ def summary_graph(pred_graph, true_graph, batch,
 
     offsets = batch.entity_offsets
 
-    rev_offsets = dict()
+    rev_pos_offsets = dict()
 
-    for i in range(len(offsets)):
-        rev_offsets[offsets[i]] = i
+    for i in range(len(batch.pos_entity_offsets)):
+        rev_pos_offsets[batch.pos_entity_offsets[0][i]] = i
 
     predicted_entities = []
+    pred_to_true = []
     for (s, e, t) in pred_graph.entities:
-        predicted_entities.append(("|".join(tokens[s:e]), t, s, e))
+        if (s, e) in rev_pos_offsets:
+            pred_to_true.append(rev_pos_offsets[(s, e)])
+        else:
+            pred_to_true.append(-1)
+        predicted_entities.append(("|".join(tokens[s:e]), t, s, e, pred_to_true[-1]))
 
     true_entities = []
-    for (s, e, t) in true_graph.entities:
-        true_entities.append(("|".join(tokens[s:e]), t, s, e))
+    for i, (s, e, t) in enumerate(true_graph.entities):
+        true_entities.append(("|".join(tokens[s:e]), t, s, e, i))
 
     writer.add_text(prefix + "predicted_entities", " ".join(str(predicted_entities)), global_step)
     writer.add_text(prefix + "true_entities", " ".join(str(true_entities)), global_step)
@@ -548,19 +581,7 @@ def summary_graph(pred_graph, true_graph, batch,
     print(len(batch.pos_entity_offsets[0]))
     print(batch.coref_labels.shape)
 
-    for i in range(entity_num):
-        for j in range(entity_num):
-
-            if batch.coref_labels[0, i, j] == 1:
-                coref_entities[j] = min(coref_entities[j], i)
-
-
-    coref_dict = dict()
-
-    for i in range(entity_num):
-        if coref_entities[i] not in coref_dict:
-            coref_dict[coref_entities[i]] = len(coref_dict)
-        coref_entities[i] = coref_dict[coref_entities[i]]
+    coref_entities, _ = get_coref_clusters(batch.coref_labels[0])
 
     total_coref_ent = max(coref_entities, default=-1)
 
@@ -693,23 +714,29 @@ def summary_graph(pred_graph, true_graph, batch,
         for i in range(entity_num):
             for j in range(entity_num):
 
+                true_ent_i = pred_to_true[i]
+                true_ent_j = pred_to_true[j]
 
+                is_actually_coref = False
+                if true_ent_i != -1 and true_ent_j != -1:
+                    is_actually_coref = true_graph.coref_matrix[true_ent_i][true_ent_j]
 
                 if pred_graph.coref_matrix[i][j] == 1:
                     coref_entities[j] = min(coref_entities[j], i)
 
-                    pred_coref_pairs.append((predicted_entities[i], predicted_entities[j], torch.norm(coref_embeds[i] - coref_embeds[j]).item()))
+                    pred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
+                                             torch.norm(coref_embeds[i] - coref_embeds[j]).item(), is_actually_coref))
                 else:
                     notpred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
-                                             torch.norm(coref_embeds[i] - coref_embeds[j]).item()))
+                                             torch.norm(coref_embeds[i] - coref_embeds[j]).item(), is_actually_coref))
 
                 cur_idx += 1
 
-        pred_coref_pairs = sorted(pred_coref_pairs, key=lambda x: x[2])[:100]
-        notpred_coref_pairs = sorted(notpred_coref_pairs, key=lambda x: x[2])[:100]
+        pred_coref_pairs_notactually = sorted(pred_coref_pairs, key=lambda x: x[2] + x[3] * 999999999)[:100]
+        notpred_coref_pairs_actually = sorted(notpred_coref_pairs, key=lambda x: x[2] - x[3] * 999999999)[:100]
 
-        writer.add_text(prefix + "pred_coref_pairs", "\n".join(map(str, pred_coref_pairs)), global_step)
-        writer.add_text(prefix + "notpred_coref_pairs", "\n".join(map(str, notpred_coref_pairs)), global_step)
+        writer.add_text(prefix + "pred_coref_pairs", "\n".join(map(str, pred_coref_pairs_notactually)), global_step)
+        writer.add_text(prefix + "notpred_coref_pairs", "\n".join(map(str, notpred_coref_pairs_actually)), global_step)
 
         coref_dict = dict()
 
