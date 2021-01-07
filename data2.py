@@ -812,7 +812,7 @@ class IEDataset(Dataset):
                                                         config.get('max_trigger_len', 2))
                                 for sent in doc.sentences)
 
-    def get_relation_labels(self, relations, entities, graph):
+    def get_relation_labels(self, relations, entities, graph, entity_uids):
         #also adds missing relations to rels list
         entity_num = len(entities)
         labels = [[0] * entity_num for i in range(entity_num)]
@@ -820,7 +820,14 @@ class IEDataset(Dataset):
         for rel_id, relation in enumerate(relations):
             relation_type = relation.relation_type_idx
             relation_type_rev = relation.relation_type_idx_rev
-            arg1 = relation.arg1.entity_id
+            arg1 = relation.arg1.uid
+            arg2 = relation.arg2.uid
+            if arg1 == arg2:
+                continue
+            i = entity_uids.index(arg1)
+            j = entity_uids.index(arg2)
+            labels[i][j] = labels[j][i] = relation_type
+            """arg1 = relation.arg1.entity_id
             arg2 = relation.arg2.entity_id
             if arg1 == arg2:
                 continue
@@ -839,7 +846,7 @@ class IEDataset(Dataset):
                         labels[j][i] = relation_type
                         if (i, j) not in rel_set and (j, i) not in rel_set:
                             rel_set.add((i, j))
-                            graph.relations.append((i, j, graph.relations[rel_id][2]))
+                            graph.relations.append((i, j, graph.relations[rel_id][2]))"""
             """if arg1 > arg2:
                 labels[arg1 * (entity_num - 1) + arg2] = relation_type
                 # Reverse link
@@ -1074,7 +1081,8 @@ class IEDataset(Dataset):
             # Relation labels
             inst_relation_labels = self.get_relation_labels(inst['relations'],
                                                             inst['entities'],
-                                                            inst['graph'])
+                                                            inst['graph'],
+                                                            inst_pos_entity_uids)
             #bad to do in collate...
 
 

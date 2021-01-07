@@ -85,6 +85,7 @@ word_embed = None
 if use_extra_word_embed:
 
     embed_file = '../lstm_fet/enwiki.skip.size200.win10.neg15.sample1e-5.min15.txt'
+    embed_file = '/home/samuel/Downloads/lstm_fet/enwiki.skip.size200.win10.neg15.sample1e-5.min15.txt'
     word_embed_dim = 200
 
     print('Loading word embeddings from %s' % embed_file)
@@ -167,89 +168,22 @@ else:
                                         output_hidden_states=True,
                                         fast=True)"""
 
-bert = LongformerModel.from_pretrained("allenai/longformer-base-4096")
+bert = LongformerModel.from_pretrained(config.bert_model_name)
 
 #bert = XLNetModel.from_pretrained("xlnet-base-cased")
 
 bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
     bert_dim *= 2
-span_len_embed_dim = 32
-node_dim = (bert_dim + word_embed_dim) * (1 + config.use_avg_repr + config.use_end_boundary) + span_len_embed_dim
-edge_dim = node_dim * 2
-dimensions = {
-    'entity_repr': node_dim,
-    'trigger_repr': node_dim,
-    'entity_label': entity_label_size,
-    'mention_label': mention_label_size,
-    'trigger_label': trigger_label_size,
-    'relation_label': relation_label_size,
-    'role_label': role_label_size
-}
-"""entity_classifier = Linears([node_dim, 200, 200, entity_label_size],
-                            dropout_prob=.2)
-trigger_classifier = Linears([node_dim, 200, event_label_size],
-                             dropout_prob=.2)
-mention_classifier = Linears([node_dim, 100, mention_label_size],
-                             dropout_prob=.2)
-relation_classifier = PairLinears(node_dim, node_dim, 120, relation_label_size,
-                                  dropout_prob=.2)
-role_classifier = PairLinears(node_dim, node_dim, 200, role_label_size,
-                              dropout_prob=.2)
 
-# entity_classifier_gnn = Linears([node_dim, 150, entity_label_size],
-#                             dropout_prob=.4)
-# trigger_classifier_gnn = Linears([node_dim, 600, event_label_size],
-#                              dropout_prob=.4)
-relation_classifier_gnn = PairLinears(node_dim + entity_label_size,
-                                      node_dim + entity_label_size,
-                                      200,
-                                      relation_label_size,
-                                      dropout_prob=.2)
-role_classifier_gnn = PairLinears(node_dim + trigger_label_size,
-                                  node_dim + entity_label_size,
-                                  600,
-                                  role_label_size,
-                                  dropout_prob=.2)
-
-span_len_embed = torch.nn.Embedding(config.max_entity_len, 32)"""
-
-# conv_list = [
-#     ('relation', node_dim + entity_label_size, node_dim +
-#      entity_label_size, relation_label_size, node_dim),
-#     ('role', node_dim + event_label_size, node_dim +
-#      entity_label_size, role_label_size, node_dim),
-#     ('role_rev', node_dim + entity_label_size, node_dim +
-#      event_label_size, role_label_size, node_dim),
-#     ('entity_self', node_dim + entity_label_size, node_dim + entity_label_size,
-#      1, node_dim),
-#     ('trigger_self', node_dim + event_label_size, node_dim + event_label_size,
-#      1, node_dim)
-# ]
-# feat_dims = {
-#     'entity': (node_dim, entity_label_size),
-#     'trigger': (node_dim, event_label_size),
-# }
-"""if use_gnn:
-    gnn = GraphConv(2,
-                    dimensions,
-                    relation_classifier=relation_classifier_gnn,
-                    role_classifier=role_classifier_gnn,
-                    feat_drop=.2,
-                    attn_drop=.1,
-                    residual=False)
-else:
-    gnn = None"""
 model = OneIEpp(config,
                 vocabs,
                 bert,
-                node_dim=node_dim,
                 word_embed=word_embed,
-                gnn=None,
                 extra_bert=extra_bert,
-                span_repr_dim=node_dim,
-                span_comp_dim=512,
-                word_embed_dim=word_embed_dim)
+                word_embed_dim=word_embed_dim,
+                coref_embed_dim=config.coref_embed_dim,
+                hidden_dim=config.hidden_dim,)
 
 # model.load_bert(model_name, cache_dir=config.bert_cache_dir)
 if use_gpu:
@@ -260,14 +194,19 @@ optimizer = None
 if skip_train == False:
     # optimizer
 
+    fine_tune_param_names = [n for n, p in model.named_parameters() if (n.startswith('encoder') or
+                                                                        n.startswith('word_embed'))]
+    print(fine_tune_param_names)
+    fine_tune_param_names = set(fine_tune_param_names)
+
     param_groups = [
         {
-            'params': [p for n, p in model.named_parameters() if n.startswith('encoder')],
-            'lr': 1e-6, 'weight_decay': 1e-6
+            'params': [p for n, p in model.named_parameters() if n in fine_tune_param_names],
+            'lr': config.bert_learning_rate, 'weight_decay': config.weight_decay
         },
         {
-            'params': [p for n, p in model.named_parameters() if not n.startswith('encoder')],
-            'lr': 1e-3, 'weight_decay': 1e-4
+            'params': [p for n, p in model.named_parameters() if not n in fine_tune_param_names],
+            'lr': config.learning_rate, 'weight_decay': config.weight_decay
         },
     ]
 
@@ -280,7 +219,7 @@ if skip_train == False:
     #                           amsbound=False)
 
     schedule = get_linear_schedule_with_warmup(optimizer,
-                                               num_warmup_steps=batch_num * 5,
+                                               num_warmup_steps=batch_num * config.warmup_epoch,
                                                num_training_steps=batch_num * epoch_num)
 
 # model state
@@ -303,8 +242,8 @@ for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0:
-        if epoch % 2 == 0 and cur_swap_prob < 0.2:
-            cur_swap_prob += 0.02
+        if epoch % 5 == 0 and cur_swap_prob < 0.3:
+            cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
 
         if cur_swap_prob > 0:
@@ -381,7 +320,7 @@ for epoch in range(epoch_num):
                     pred_train_graphs.extend(pred_graphs)
                     gold_train_graphs.extend(batch.graphs)
 
-                    if batch_idx % 150 == 0:
+                    if batch_idx % 150 == 0:# or batch_idx < 10:
                         summary_graph(pred_graphs[0], batch.graphs[0], batch,
                                   writer, global_step, "train_", vocabs, coref_embeds)
 
@@ -486,8 +425,8 @@ for epoch in range(epoch_num):
 
     # torch.save(model, "model.pt")
 
-    #for k, v in test_scores.items():
-    #    writer.add_scalar('test_' + k + '_f', v['f'], global_step)
+    for k, v in test_scores.items():
+        writer.add_scalar('test_' + k + '_f', v['f'], global_step)
 
     # log_writer.write(json.dumps({'epoch': epoch,
     #                             'dev': dev_scores,

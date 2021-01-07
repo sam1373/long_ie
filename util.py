@@ -386,7 +386,7 @@ def label2onehot(tensor: torch.Tensor, label_size: int):
 
 
 
-from sklearn.cluster import DBSCAN, OPTICS
+from sklearn.cluster import DBSCAN, OPTICS, AgglomerativeClustering
 
 
 def build_information_graph(batch,
@@ -409,7 +409,10 @@ def build_information_graph(batch,
         coref_matrix = None
         if coref_embeds is not None:
             coref_embeds_cur = coref_embeds[graph_idx].cpu().numpy()
-            clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
+
+            #coref_matrix = np.linalg.norm(coref_embeds_cur[:, None, :] - coref_embeds_cur[None, :, :], axis=-1)
+
+            clustering = AgglomerativeClustering().fit(coref_embeds_cur)
 
             #coref_preds = []
             coref_matrix = []
@@ -418,7 +421,9 @@ def build_information_graph(batch,
                 new_l = []
                 for j in range(coref_embeds_cur.shape[0]):
 
-                    if clustering.labels_[i] == clustering.labels_[j] and clustering.labels_[i] != -1:
+                    if i == j:
+                        new_l.append(1)
+                    elif clustering.labels_[i] == clustering.labels_[j] and clustering.labels_[i] != -1:
                         #coref_preds.append(1)
                         new_l.append(1)
                     else:
@@ -540,6 +545,8 @@ def summary_graph(pred_graph, true_graph, batch,
     #cur_idx = 0
 
     print(entity_num, entity_num ** 2)
+    print(len(batch.pos_entity_offsets[0]))
+    print(batch.coref_labels.shape)
 
     for i in range(entity_num):
         for j in range(entity_num):

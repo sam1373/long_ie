@@ -131,24 +131,23 @@ class PairLinears(nn.Module):
 class OneIEpp(nn.Module):
     """OneIE++ model."""
     def __init__(self,
-                 config: Dict[str, Any],
+                 config,
                  vocabs: Dict[str, Dict[str, int]],
                  encoder: nn.Module,
-                 node_dim: int,
                  word_embed:nn.Module = None,
-                 gnn: nn.Module = None,
                  extra_bert: int = 0,
-                 span_repr_dim: int = None,
-                 span_comp_dim: int = 512,
                  word_embed_dim: int = 0,
                  coref_embed_dim: int = 64,
+                 hidden_dim: int = 500,#500
+                 span_transformer_layers: int = 10,#10
+                 encoder_dropout_prob: float = 0.2,
                  ):
         super().__init__()
 
         self.config = config
         self.vocabs = vocabs
         self.encoder = encoder
-        self.encoder_dropout = nn.Dropout(0.2)
+        self.encoder_dropout = nn.Dropout(encoder_dropout_prob)
 
         token_initial_dim = self.encoder.config.hidden_size
         if self.config.get('use_extra_word_embed'):
@@ -156,13 +155,13 @@ class OneIEpp(nn.Module):
 
         #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
 
-        self.is_start_clf = Linears([token_initial_dim, 500, 2])
-        self.len_from_here_clf = Linears([token_initial_dim, 500, 8])
-        self.type_clf = Linears([token_initial_dim, 500, len(vocabs['entity'])])
+        self.is_start_clf = Linears([token_initial_dim, hidden_dim, 2])
+        self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len])
+        self.type_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['entity'])])
 
-        self.relation_clf = Linears([token_initial_dim * 2, 500, 500, len(vocabs['relation'])])
+        self.relation_clf = Linears([token_initial_dim * 2, hidden_dim, hidden_dim, len(vocabs['relation'])])
 
-        self.coref_embed = Linears([token_initial_dim, 500, coref_embed_dim])
+        self.coref_embed = Linears([token_initial_dim, hidden_dim, coref_embed_dim])
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
 
         #self.importance_score = Linears([token_initial_dim, 128, 1])
@@ -176,11 +175,10 @@ class OneIEpp(nn.Module):
         self.span_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                 vocabs=vocabs,
                                                 final_pred_embeds=False,
-                                                num_layers=10)
+                                                num_layers=span_transformer_layers)
 
 
         self.word_embed = word_embed
-        self.gnn = gnn
         self.use_extra_bert = config.get("use_extra_bert")
         self.extra_bert = extra_bert
 
@@ -682,7 +680,7 @@ class OneIEpp(nn.Module):
 
         gold_start_one = (batch.is_start == 1.)
 
-        entity_loss_len = self.criteria(len_from_here[gold_start_one].view(-1, 8),
+        entity_loss_len = self.criteria(len_from_here[gold_start_one].view(-1, self.config.max_entity_len),
                                         batch.len_from_here[gold_start_one].view(-1))
         entity_loss_type = self.criteria(type_pred.view(-1, len(self.vocabs["entity"])),
                                          batch.entity_labels[batch.entity_labels > 0])
@@ -807,49 +805,7 @@ class OneIEpp(nn.Module):
                     print('Role loss is NaN')
                     print(batch)
 
-        if self.gnn is not None:
-            if batch.id_entity_labels.size(0):
-                gnn_entity_loss = self.calculate_loss(gnn_scores,
-                                                      batch.id_entity_labels,
-                                                      'entity',
-                                                      last_only=last_only)
-                if not torch.isnan(gnn_entity_loss):
-                    loss.append(gnn_entity_loss)
-                else:
-                    print('GNN entity loss is NaN')
-                    print(batch)
-            if batch.relation_labels.size(0):
-                gnn_relation_loss = self.calculate_loss(gnn_scores,
-                                                        batch.relation_labels,
-                                                        'relation',
-                                                        last_only=last_only)
-                if not torch.isnan(gnn_relation_loss):
-                    loss.append(gnn_relation_loss)
-                else:
-                    print('GNN relation loss is NaN')
-                    print(batch)
-            if batch.id_trigger_labels.size(0):
-                gnn_trigger_loss = self.calculate_loss(gnn_scores,
-                                                       batch.id_trigger_labels,
-                                                       'trigger',
-                                                       last_only=last_only)
-                if not torch.isnan(gnn_trigger_loss):
-                    loss.append(gnn_trigger_loss)
-                else:
-                    print('GNN trigger loss is NaN')
-                    print(batch)
-            if batch.role_labels.size(0):
-                gnn_role_loss = self.calculate_loss(gnn_scores,
-                                                    batch.role_labels,
-                                                    'role',
-                                                    last_only=last_only)
-                if not torch.isnan(gnn_role_loss):
-                    loss.append(gnn_role_loss)
-                else:
-                    print('GNN role loss is NaN')
-                    print(batch)
 
-        #loss = sum(loss) if loss else None
         return loss, loss_names
 
     def predict(self, batch: Batch, epoch=0):
