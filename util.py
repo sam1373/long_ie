@@ -11,6 +11,7 @@ from torch import nn
 from graph import Graph
 from random import random
 
+from collections import defaultdict
 
 def argmax(lst):
     max_idx = -1
@@ -412,7 +413,9 @@ def build_information_graph(batch,
 
             #coref_matrix = np.linalg.norm(coref_embeds_cur[:, None, :] - coref_embeds_cur[None, :, :], axis=-1)
 
-            clustering = AgglomerativeClustering(distance_threshold=2.).fit(coref_embeds_cur)
+            clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).fit(coref_embeds_cur)
+            #clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
+            #clustering = DBSCAN(min_samples=2).fit(coref_embeds_cur)
 
             #coref_preds = []
             coref_matrix = []
@@ -507,6 +510,24 @@ def get_coref_clusters(coref_matrix):
 
     return coref_entities, coref_cluster_lists
 
+def align_pred_to_gold(true_entities, pred_entities):
+    rev_true = defaultdict(lambda: -1)
+
+    for i, (s, e, t) in enumerate(true_entities):
+        rev_true[(s, e, t)] = i
+
+    alignment = []
+    total_al_ent = len(true_entities)
+
+    for i, (s, e, t) in enumerate(pred_entities):
+        aligned_to = rev_true[(s, e, t)]
+        if aligned_to == -1:
+            aligned_to = total_al_ent
+            total_al_ent += 1
+        alignment.append(aligned_to)
+
+    return alignment
+
 import matplotlib.pyplot as plt
 import numpy as np
 from highlight_text import ax_text, fig_text
@@ -526,7 +547,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     rev_pos_offsets = dict()
 
-    for i in range(len(batch.pos_entity_offsets)):
+    for i in range(len(batch.pos_entity_offsets[0])):
         rev_pos_offsets[batch.pos_entity_offsets[0][i]] = i
 
     predicted_entities = []
@@ -712,7 +733,7 @@ def summary_graph(pred_graph, true_graph, batch,
     if pred_graph.coref_matrix is not None:
 
         for i in range(entity_num):
-            for j in range(entity_num):
+            for j in range(i + 1, entity_num):
 
                 true_ent_i = pred_to_true[i]
                 true_ent_j = pred_to_true[j]
