@@ -19,6 +19,9 @@ import torch_scatter
 
 import random
 
+from sklearn.cluster import DBSCAN, OPTICS, AgglomerativeClustering
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -434,12 +437,39 @@ class OneIEpp(nn.Module):
 
         entity_spans = self.span_transformer(entity_spans)
 
-        type_pred = self.type_clf(entity_spans)
-
         if self.config.get("do_coref"):
             coref_embed = self.coref_embed(entity_spans)
+
+            if predict:
+
+                cluster_labels = torch.zeros(coref_embed.shape[:2]).cuda().long()
+
+                for b in range(batch_size):
+                    clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).\
+                        fit(coref_embed[b].detach().cpu().numpy())
+                    cluster_labels[b] = torch.LongTensor(clustering.labels_).cuda()
+
+                entity_means = torch_scatter.scatter_mean(entity_spans, cluster_labels, dim=1)
+
+                entity_spans_aggr = torch.gather(entity_means, 1,
+                                                 cluster_labels.unsqueeze(-1).
+                                                 expand(-1, -1, entity_means.shape[-1]))
+
+            else:
+                entity_means = torch_scatter.scatter_mean(entity_spans, batch.mention_to_ent_coref, dim=1)
+
+                entity_spans_aggr = torch.gather(entity_means, 1,
+                                                 batch.mention_to_ent_coref.unsqueeze(-1).
+                                                 expand(-1, -1, entity_means.shape[-1]))
+
+            #print()
+
+            entity_spans = entity_spans_aggr
+
         else:
             coref_embed = None
+
+        type_pred = self.type_clf(entity_spans)
 
         if self.config.get("classify_relations"):
             pair_ids = torch.LongTensor(get_pairwise_idxs(entity_spans.shape[1], entity_spans.shape[1])).cuda()
@@ -451,213 +481,7 @@ class OneIEpp(nn.Module):
 
         return is_start_pred, len_from_here_pred, type_pred, coref_embed, relation_pred
 
-        # Generate entity and trigger span representations
-        entity_span_repr = self.get_span_representations(encoder_outputs,
-                                                         batch.entity_idxs,
-                                                         batch.entity_mask,
-                                                         batch.entity_lens,
-                                                         batch.entity_boundaries,
-                                                         batch.token_embed_ids,
-                                                         batch.max_entity_len)
 
-        """trigger_span_repr = self.get_span_representations(encoder_outputs,
-                                                          batch.trigger_idxs,
-                                                          batch.trigger_mask,
-                                                          batch.trigger_lens,
-                                                          batch.trigger_boundaries,
-                                                          batch.token_embed_ids,
-                                                          batch.max_trigger_len)"""
-        repr_dim = entity_span_repr.size(-1)
-
-        span_candidate_score = self.span_candidate_classifier(entity_span_repr)
-
-        if not predict:
-
-            span_candidate_score_with_true = span_candidate_score.clone()
-
-            score_shape = span_candidate_score.shape[:2] + (1,)
-
-            scores_for_true_spans = torch.cat((torch.zeros(score_shape), torch.ones(score_shape) * 100.), dim=-1).cuda()
-
-            span_candidate_score_with_true.scatter_(1, batch.pos_entity_idxs.unsqueeze(-1).expand(-1, -1, 2),
-                                                   scores_for_true_spans)
-
-            span_candidates_idxs = span_candidate_score_with_true.max(2)[1].nonzero()[:, 1]
-
-        else:
-            span_candidates_idxs = span_candidate_score.max(2)[1].nonzero()[:, 1]
-
-            if span_candidates_idxs.shape[-1] == 0:
-                span_candidates_idxs = torch.cuda.LongTensor([0])
-
-        span_candidates_idxs = span_candidates_idxs.reshape(1, -1, 1)
-
-        #bs, span_num, 1
-        #contains span pos id
-
-        #TODO: change to work with larger batch size
-
-        span_candidate_repr = entity_span_repr.gather(
-            1, span_candidates_idxs.expand(-1, -1, repr_dim))
-
-        #bs, span_num, span_dim
-
-        span_candidate_repr = self.span_compress(span_candidate_repr)
-
-
-        true_spans = None
-
-        if not predict:
-            true_entity_labels = batch.entity_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1)
-
-            true_spans = true_entity_labels.nonzero()
-
-            true_spans = true_spans.view(1, -1)
-
-        entity_type, trigger_type, relation_type, coref_embeds = self.span_transformer(span_candidate_repr,
-                                                                         predict=predict,
-                                                                         true_spans=true_spans,
-                                                                         batch=batch,
-                                                                         span_cand_idxs=span_candidates_idxs)
-
-
-        return span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds
-
-        # Calculate span label scores
-        entity_span_score = self.entity_classifier(entity_span_repr)
-        entity_label_size = entity_span_score.size(-1)
-        trigger_span_score = self.event_classifier(entity_span_repr)
-        trigger_label_size = trigger_span_score.size(-1)
-
-        if predict:
-            # In evaluation phase, predict the indices of valid spans
-            entity_idxs, entity_nums = self.predict_spans(entity_span_score,
-                                                          batch.entity_span_mask)
-            trigger_idxs, trigger_nums = self.predict_spans(trigger_span_score,
-                                                            batch.trigger_span_mask)
-        else:
-            # In training phase, using spans in the annotations
-            entity_idxs = batch.pos_entity_idxs
-            trigger_idxs = batch.pos_trigger_idxs
-            entity_nums = [len(x) for x in batch.pos_entity_offsets]
-            trigger_nums = [len(x) for x in batch.pos_trigger_offsets]
-        entity_idxs_exp = entity_idxs.unsqueeze(-1)
-        trigger_idxs_exp = trigger_idxs.unsqueeze(-1)
-
-        # Select entity representation
-        entity_repr = entity_span_repr.gather(
-            1, entity_idxs_exp.expand(-1, -1, repr_dim))
-        entity_score = entity_span_score.gather(
-            1, entity_idxs_exp.expand(-1, -1, entity_label_size))
-        mention_score = self.mention_classifier(entity_repr)
-        entity_num = entity_repr.size(1)
-
-        # Select trigger representation
-        trigger_repr = entity_span_repr.gather(
-            1, trigger_idxs_exp.expand(-1, -1, repr_dim))
-        event_score = trigger_span_score.gather(
-            1, trigger_idxs_exp.expand(-1, -1, trigger_label_size))
-        trigger_num = trigger_repr.size(1)
-
-        rel_score, role_score = None, None
-
-        if self.config.get("classify_relations"):
-            # Generate relation representations
-            rel_src_repr = self.relation_classifier.forward_src(entity_repr)
-            rel_dst_repr = self.relation_classifier.forward_dst(entity_repr)
-            rel_hid_dim = rel_src_repr.size(-1)
-            rel_src_idxs, rel_dst_idxs = get_pairwise_idxs_separate(entity_num,
-                                                                    entity_num,
-                                                                    True)
-            rel_src_idxs = (entity_idxs.new_tensor(rel_src_idxs)
-                            .unsqueeze(0).unsqueeze(-1)
-                            .expand(batch_size, -1, rel_hid_dim))
-            rel_dst_idxs = (entity_idxs.new_tensor(rel_dst_idxs)
-                            .unsqueeze(0).unsqueeze(-1)
-                            .expand(batch_size, -1, rel_hid_dim))
-            rel_src_repr = (rel_src_repr
-                            .gather(1, rel_src_idxs)
-                            .view(batch_size, entity_num, entity_num - 1, rel_hid_dim))
-            rel_dst_repr = (rel_dst_repr
-                            .gather(1, rel_dst_idxs)
-                            .view(batch_size, entity_num, entity_num - 1, rel_hid_dim))
-            rel_score = self.relation_classifier.forward_output(rel_src_repr,
-                                                                rel_dst_repr)
-        if self.config.get("classify_roles"):
-            # Generate event-argument link (role) representations
-            role_src_repr = self.role_classifier.forward_src(trigger_repr)
-            role_dst_repr = self.role_classifier.forward_dst(entity_repr)
-            role_hid_dim = role_src_repr.size(-1)
-            role_src_idxs, role_dst_idxs = get_pairwise_idxs_separate(trigger_num,
-                                                                      entity_num)
-            role_src_idxs = (entity_idxs.new_tensor(role_src_idxs)
-                             .unsqueeze(0).unsqueeze(-1)
-                             .expand(batch_size, -1, role_hid_dim))
-            role_dst_idxs = (entity_idxs.new_tensor(role_dst_idxs)
-                             .unsqueeze(0).unsqueeze(-1)
-                             .expand(batch_size, -1, role_hid_dim))
-            role_src_repr = (role_src_repr
-                             .gather(1, role_src_idxs)
-                             .view(batch_size, trigger_num, entity_num, role_hid_dim))
-            role_dst_repr = (role_dst_repr
-                             .gather(1, role_dst_idxs)
-                             .view(batch_size, trigger_num, entity_num, role_hid_dim))
-            role_score = self.role_classifier.forward_output(role_src_repr,
-                                                             role_dst_repr)
-
-
-        local_scores = self.reshape_local_scores(
-                entity_span_score, trigger_span_score, rel_score, role_score,
-                entity_nums, trigger_nums)
-
-        if predict:
-            scores = {'entity': entity_score,
-                      'trigger': event_score,
-                      'relation': rel_score,
-                      'role': role_score}
-        else:
-            # Use gold label scores
-            entity_labels = batch.entity_labels_sep
-            trigger_labels = batch.trigger_labels_sep
-            relation_labels = batch.relation_labels_sep
-            role_labels = batch.role_labels_sep
-            entity_label_size = self.label_size('entity')
-            trigger_label_size = self.label_size('event')
-            relation_label_size = self.label_size('relation')
-            role_label_size = self.label_size('role')
-            scores = {
-                'entity': [label2onehot(x, entity_label_size) for x in entity_labels],
-                'trigger': [label2onehot(x, trigger_label_size) for x in trigger_labels],
-                'relation': [label2onehot(x, relation_label_size) for x in relation_labels],
-                'role': [label2onehot(x, role_label_size) for x in role_labels]
-            }
-
-        # Construct graphs
-        # Add all node / edge types
-        if self.gnn is not None:
-            graphs = self.build_graphs(entity_nums=entity_nums,
-                                       trigger_nums=trigger_nums,
-                                       device=encoder_outputs.device)
-            reprs = {'entity': entity_repr,
-                     'trigger': trigger_repr,}
-
-            # Run HeteroRGCN
-            # Relation score and role score should be transformed
-            gnn_scores = self.run_gnn(graphs, reprs, scores, entity_nums, trigger_nums,
-                                      predict=predict)
-
-            if predict:
-                return gnn_scores, local_scores, entity_idxs, entity_nums, trigger_idxs, trigger_nums, span_candidate_score
-            else:
-                # local_scores = self.reshape_local_scores(
-                #     entity_span_score, trigger_span_score, rel_score, role_score,
-                #     entity_nums, trigger_nums)
-                return gnn_scores, local_scores
-        else:
-            if predict:
-                return scores, local_scores, entity_idxs, entity_nums, trigger_idxs, trigger_nums, span_candidate_score
-            else:
-                return scores, local_scores, span_candidate_score
 
     def forward(self, batch: Batch, last_only: bool = True, epoch=0):
         is_start, len_from_here, type_pred, coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)

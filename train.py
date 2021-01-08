@@ -84,8 +84,7 @@ word_vocab = None
 word_embed = None
 if use_extra_word_embed:
 
-    embed_file = '../lstm_fet/enwiki.skip.size200.win10.neg15.sample1e-5.min15.txt'
-    embed_file = '/home/samuel/Downloads/lstm_fet/enwiki.skip.size200.win10.neg15.sample1e-5.min15.txt'
+    embed_file = config.word_embed_file
     word_embed_dim = 200
 
     print('Loading word embeddings from %s' % embed_file)
@@ -305,7 +304,7 @@ for epoch in range(epoch_num):
                 # del local_scores
                 # gc.collect()
 
-        if epoch % 5 == 0:
+        if epoch % 5 == 0 and not args.debug:
 
             gold_train_graphs, pred_train_graphs = [], []
 
@@ -359,7 +358,7 @@ for epoch in range(epoch_num):
 
             pred_graphs = build_information_graph(batch, *result, vocabs)
 
-            if batch_idx % 8 == 0:
+            if batch_idx % 8 == 0 and not args.debug:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs, coref_embeds)
 
@@ -392,7 +391,7 @@ for epoch in range(epoch_num):
             torch.save(state, "model.pt")
             best_dev_score = dev_scores[score_to_use]['f']
 
-    if epoch % 5 == 0 and do_test:
+    if epoch % 5 == 0 and do_test and not args.debug:
         # Test
         test_loader = DataLoader(test_set,
                                  batch_size,
@@ -425,8 +424,8 @@ for epoch in range(epoch_num):
 
     # torch.save(model, "model.pt")
 
-    for k, v in test_scores.items():
-        writer.add_scalar('test_' + k + '_f', v['f'], global_step)
+        for k, v in test_scores.items():
+            writer.add_scalar('test_' + k + '_f', v['f'], global_step)
 
     # log_writer.write(json.dumps({'epoch': epoch,
     #                             'dev': dev_scores,

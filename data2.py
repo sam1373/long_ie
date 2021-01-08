@@ -1106,6 +1106,8 @@ class IEDataset(Dataset):
                     inst_entities_coref[cur_ent] = len(inst_entities_coref)
                 inst_mention_to_ent_coref.append(inst_entities_coref[cur_ent])
 
+                inst_coref_labels[a][a] = 1
+
                 for b in range(a + 1, entity_num):
                     if cur_ent == inst['entities'][b].entity_id:
                         inst_coref_labels[b][a] = 1
