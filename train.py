@@ -241,7 +241,7 @@ for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0:
-        if epoch % 5 == 0 and cur_swap_prob < 0.3:
+        if epoch % 5 == 0 and cur_swap_prob < 0.6:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
 
@@ -358,7 +358,7 @@ for epoch in range(epoch_num):
 
             pred_graphs = build_information_graph(batch, *result, vocabs)
 
-            if batch_idx % 8 == 0 and not args.debug:
+            if batch_idx % 8 == 0:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs, coref_embeds)
 

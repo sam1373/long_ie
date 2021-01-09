@@ -24,8 +24,8 @@ def compute_f1(predicted, gold, matched):
 
 import copy
 
-def b_cubed_modified(key, response, true_entity_num, max_pred_ent, not_predicted_set):
 
+def b_cubed_modified(key, response, true_entity_num, max_pred_ent, not_predicted_set):
     response_mod = []
 
     for r in response:
@@ -122,7 +122,7 @@ def score_graphs(gold_graphs, pred_graphs,
     gold_ent_num = pred_ent_num = ent_match_num = ent_overlap_match_num = 0
     gold_rel_num = pred_rel_num = rel_match_num = 0
     gold_men_num = pred_men_num = men_match_num = 0
-    #gold_cluster_matched = gold_cluster_total = pred_cluster_total = 0
+    # gold_cluster_matched = gold_cluster_total = pred_cluster_total = 0
     cluster_p = cluster_r = 0
 
     for gold_graph, pred_graph in zip(gold_graphs, pred_graphs):
@@ -153,23 +153,43 @@ def score_graphs(gold_graphs, pred_graphs,
         pred_entity_coref, pred_clusters = get_coref_clusters(pred_graph.coref_matrix)
         gold_entity_cored, gold_clusters = get_coref_clusters(gold_graph.coref_matrix)
 
-        pred_clusters_aligned = [list(map(lambda x: alignment[x], c)) for c in pred_clusters]
+        pred_clusters_ment_aligned = [list(map(lambda x: alignment[x], c)) for c in pred_clusters]
 
-        #g_c_m = compute_cluster_metrics(pred_clusters, gold_clusters, pred_entities, gold_entities)
-        r, p, f = b_cubed_modified(gold_clusters, pred_clusters_aligned, len(gold_entities), max_pred_ent, not_predicted_idx)
+        pred_clusters_aligned = []
+
+        num_matched = 0
+
+        for p_cl in pred_clusters_ment_aligned:
+            found = False
+            for g_id, g_cl in enumerate(gold_clusters):
+                matched = set(p_cl).intersection(set(g_cl))
+                if len(matched) > len(p_cl) // 2 and len(matched) > len(g_cl) // 2:
+                    pred_clusters_aligned.append(g_id)
+                    found = True
+                    num_matched += 1
+                    break
+            if not found:
+                pred_clusters_aligned.append(-1)
+
+        matched_prec = num_matched / len(pred_clusters)
+        matched_rec = num_matched / len(gold_clusters)
+
+        # g_c_m = compute_cluster_metrics(pred_clusters, gold_clusters, pred_entities, gold_entities)
+        r, p, f = b_cubed_modified(gold_clusters, pred_clusters_ment_aligned, len(gold_entities), max_pred_ent,
+                                   not_predicted_idx)
 
         # print("pred clusters:", pred_clusters)
         # print("gold clusters:", gold_clusters)
         # print("matched:", g_c_m)
 
-        #gold_cluster_matched += g_c_m
+        # gold_cluster_matched += g_c_m
         # pred_cluster_matched += p_c_m
 
         cluster_p += p
         cluster_r += r
 
-        #gold_cluster_total += len(gold_clusters)
-        #pred_cluster_total += len(pred_clusters)
+        # gold_cluster_total += len(gold_clusters)
+        # pred_cluster_total += len(pred_clusters)
 
         # Relation
         gold_relations = gold_graph.relations
@@ -177,29 +197,24 @@ def score_graphs(gold_graphs, pred_graphs,
         gold_rel_num += len(gold_relations)
         pred_rel_num += len(pred_relations)
         for arg1, arg2, rel_type in pred_relations:
-            arg1_start, arg1_end, _ = pred_entities[arg1]
-            arg2_start, arg2_end, _ = pred_entities[arg2]
+            # arg1_start, arg1_end, _ = pred_entities[arg1]
+            # arg2_start, arg2_end, _ = pred_entities[arg2]
+            arg1 = pred_clusters_aligned[arg1]
+            arg2 = pred_clusters_aligned[arg2]
+            if arg1 == -1 or arg2 == -1:
+                continue
             for arg1_gold, arg2_gold, rel_type_gold in gold_relations:
-                arg1_start_gold, arg1_end_gold, _ = gold_entities[arg1_gold]
-                arg2_start_gold, arg2_end_gold, _ = gold_entities[arg2_gold]
+                # arg1_start_gold, arg1_end_gold, _ = gold_entities[arg1_gold]
+                # arg2_start_gold, arg2_end_gold, _ = gold_entities[arg2_gold]
                 if relation_directional:
-                    if (arg1_start == arg1_start_gold and
-                        arg1_end == arg1_end_gold and
-                        arg2_start == arg2_start_gold and
-                        arg2_end == arg2_end_gold
+                    if (arg1 == arg1_gold and arg2 == arg2_gold
                     ) and rel_type == rel_type_gold:
                         rel_match_num += 1
                         break
                 else:
-                    if ((arg1_start == arg1_start_gold and
-                         arg1_end == arg1_end_gold and
-                         arg2_start == arg2_start_gold and
-                         arg2_end == arg2_end_gold) or (
-                                arg1_start == arg2_start_gold and
-                                arg1_end == arg2_end_gold and
-                                arg2_start == arg1_start_gold and
-                                arg2_end == arg1_end_gold
-                        )) and rel_type == rel_type_gold:
+                    if ((arg1 == arg1_gold and arg2 == arg2_gold) or (
+                            arg1 == arg2_gold and arg1 == arg2_gold
+                    )) and rel_type == rel_type_gold:
                         rel_match_num += 1
                         break
 
@@ -250,9 +265,9 @@ def score_graphs(gold_graphs, pred_graphs,
         pred_arg_num, gold_arg_num, arg_idn_num)
     role_prec, role_rec, role_f = compute_f1(
         pred_arg_num, gold_arg_num, arg_class_num)
-    #cluster_prec, cluster_rec, cluster_f = compute_f1(
+    # cluster_prec, cluster_rec, cluster_f = compute_f1(
     #    pred_cluster_total, gold_cluster_total, gold_cluster_matched
-    #)
+    # )
     cluster_prec = cluster_p / len(gold_graphs)
     cluster_rec = cluster_r / len(gold_graphs)
     cluster_f = harmonic_mean((cluster_prec, cluster_rec))

@@ -158,11 +158,12 @@ class OneIEpp(nn.Module):
 
         #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
 
+
         self.is_start_clf = Linears([token_initial_dim, hidden_dim, 2])
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len])
         self.type_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['entity'])])
 
-        self.relation_clf = Linears([token_initial_dim * 2, hidden_dim, hidden_dim, len(vocabs['relation'])])
+        self.relation_clf = Linears([token_initial_dim * 2, hidden_dim, len(vocabs['relation'])])
 
         self.coref_embed = Linears([token_initial_dim, hidden_dim, coref_embed_dim])
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
@@ -451,33 +452,64 @@ class OneIEpp(nn.Module):
 
                 entity_means = torch_scatter.scatter_mean(entity_spans, cluster_labels, dim=1)
 
-                entity_spans_aggr = torch.gather(entity_means, 1,
+                entity_aggr_aligned = torch.gather(entity_means, 1,
                                                  cluster_labels.unsqueeze(-1).
                                                  expand(-1, -1, entity_means.shape[-1]))
 
-            else:
-                entity_means = torch_scatter.scatter_mean(entity_spans, batch.mention_to_ent_coref, dim=1)
+                cluster_num = entity_means.shape[1]
 
-                entity_spans_aggr = torch.gather(entity_means, 1,
-                                                 batch.mention_to_ent_coref.unsqueeze(-1).
+            else:
+
+                true_clusters = batch.mention_to_ent_coref
+
+                cluster_num = true_clusters.max() + 1
+
+                cluster_noise = torch.randint(0, cluster_num, true_clusters.shape).cuda()
+
+                cluster_mask = torch.rand(true_clusters.shape).cuda() > 0.7
+
+                noisy_clusters = torch.clone(true_clusters)
+
+                noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
+
+                entity_means = torch_scatter.scatter_mean(entity_spans, noisy_clusters, dim=1)
+
+                if entity_means.shape[1] < cluster_num:
+                    entity_means_pad = torch.zeros(batch_size, cluster_num, entity_means.shape[-1]).cuda()
+                    entity_means_pad[:, :entity_means.shape[1]] = entity_means
+                    entity_means = entity_means_pad
+
+                entity_aggr_aligned = torch.gather(entity_means, 1,
+                                                 noisy_clusters.unsqueeze(-1).
                                                  expand(-1, -1, entity_means.shape[-1]))
 
             #print()
+            #cluster_num = entity_means.shape[1]
 
-            entity_spans = entity_spans_aggr
+            if self.config.get("classify_relations"):
+                pair_ids = torch.LongTensor(get_pairwise_idxs(cluster_num, cluster_num)).cuda()
+                entity_pairs = torch.gather(entity_means, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
+                                                                                            entity_spans.shape[2]))
+                entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_spans.shape[2] * 2)
+                relation_pred = self.relation_clf(entity_pairs)
+            else:
+                relation_pred = None
+
+            entity_spans = entity_aggr_aligned
 
         else:
             coref_embed = None
 
         type_pred = self.type_clf(entity_spans)
 
-        if self.config.get("classify_relations"):
-            pair_ids = torch.LongTensor(get_pairwise_idxs(entity_spans.shape[1], entity_spans.shape[1])).cuda()
-            entity_pairs = torch.gather(entity_spans, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1, entity_spans.shape[2]))
-            entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_spans.shape[2] * 2)
-            relation_pred = self.relation_clf(entity_pairs)
-        else:
-            relation_pred = None
+        if not self.config.get("do_coref"):
+            if self.config.get("classify_relations"):
+                pair_ids = torch.LongTensor(get_pairwise_idxs(entity_spans.shape[1], entity_spans.shape[1])).cuda()
+                entity_pairs = torch.gather(entity_spans, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1, entity_spans.shape[2]))
+                entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_spans.shape[2] * 2)
+                relation_pred = self.relation_clf(entity_pairs)
+            else:
+                relation_pred = None
 
         return is_start_pred, len_from_here_pred, type_pred, coref_embed, relation_pred
 
@@ -611,6 +643,8 @@ class OneIEpp(nn.Module):
 
             relation_loss = self.criteria(relation_pred,
                                                batch.relation_labels.view(-1)[:relation_pred.shape[0]])
+
+            print(relation_loss)
 
             if not torch.isnan(relation_loss):
                 loss.append(relation_loss)

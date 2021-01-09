@@ -407,6 +407,7 @@ def build_information_graph(batch,
     for graph_idx in range(batch.batch_size):
 
         #coref_preds = None
+        #TODO remove from here
         coref_matrix = None
         if coref_embeds is not None:
             coref_embeds_cur = coref_embeds[graph_idx].cpu().numpy()
@@ -453,10 +454,12 @@ def build_information_graph(batch,
         relations = []
 
         if relation_pred is not None:
-            rel_matrix = relation_pred[graph_idx].view(entity_num, entity_num, -1)
+            cluster_num = max(clustering.labels_) + 1
 
-            for i in range(entity_num):
-                for j in range(i + 1, entity_num):
+            rel_matrix = relation_pred[graph_idx].view(cluster_num, cluster_num, -1)
+
+            for i in range(cluster_num):
+                for j in range(i + 1, cluster_num):
                     rel_pred = rel_matrix[i, j].argmax().item()
 
                     if rel_pred > 0:
@@ -602,7 +605,7 @@ def summary_graph(pred_graph, true_graph, batch,
     print(len(batch.pos_entity_offsets[0]))
     print(batch.coref_labels.shape)
 
-    coref_entities, _ = get_coref_clusters(batch.coref_labels[0])
+    coref_entities, true_clusters = get_coref_clusters(batch.coref_labels[0])
 
     total_coref_ent = max(coref_entities, default=-1)
 
@@ -760,11 +763,14 @@ def summary_graph(pred_graph, true_graph, batch,
         writer.add_text(prefix + "notpred_coref_pairs", "\n".join(map(str, notpred_coref_pairs_actually)), global_step)
 
         coref_dict = dict()
+        pred_clusters = []
 
         for i in range(entity_num):
             if coref_entities[i] not in coref_dict:
                 coref_dict[coref_entities[i]] = len(coref_dict)
+                pred_clusters.append([])
             coref_entities[i] = coref_dict[coref_entities[i]]
+            pred_clusters[coref_entities[i]].append(i)
 
         pred_coref_ent = max(coref_entities, default=-1)
 
@@ -900,28 +906,26 @@ def summary_graph(pred_graph, true_graph, batch,
 
     predicted_relations = []
 
-    for (a, b, t) in pred_graph.relations:
-        arg1 = predicted_entities[a][0]
-        arg2 = predicted_entities[b][0]
+    for (a, b, t) in pred_graph.relations[:50]:
+        arg1 = predicted_entities[pred_clusters[a][0]][0]
+        arg2 = predicted_entities[pred_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
-        dist = abs(predicted_entities[a][2] - predicted_entities[b][2])
-        predicted_relations.append((arg1, arg2, t, dist))
+        predicted_relations.append((arg1, arg2, t))
 
     true_relations = []
 
     for (a, b, t) in true_graph.relations:
-        arg1 = true_entities[a][0]
-        arg2 = true_entities[b][0]
+        arg1 = true_entities[true_clusters[a][0]][0]
+        arg2 = true_entities[true_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
-        dist = abs(true_entities[a][2] - true_entities[b][2])
-        true_relations.append((arg1, arg2, t, dist))
+        true_relations.append((arg1, arg2, t))
 
     writer.add_text(prefix + "predicted_relations", " ".join(str(predicted_relations)), global_step)
     writer.add_text(prefix + "true_relations", " ".join(str(true_relations)), global_step)
 
-    predicted_relations = set(predicted_relations)
+    """predicted_relations = set(predicted_relations)
 
     true_relations = set(true_relations)
 
@@ -930,7 +934,7 @@ def summary_graph(pred_graph, true_graph, batch,
     not_predicted = true_relations - predicted_relations
 
     writer.add_text(prefix + "rels_predicted_false", " ".join(str(predicted_false)), global_step)
-    writer.add_text(prefix + "rels_not_predicted", " ".join(str(not_predicted)), global_step)
+    writer.add_text(prefix + "rels_not_predicted", " ".join(str(not_predicted)), global_step)"""
 
     plt.close('all')
 

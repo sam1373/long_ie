@@ -803,6 +803,7 @@ class IEDataset(Dataset):
         return instance
 
     def tensorize(self, vocabs: Dict[str, Dict[str, int]], config, ontology=None):
+        self.vocabs = vocabs
         self.tensors = []
         for doc in self.data:
             self.tensors.extend(self.tensorize_sentence(sent,
@@ -811,6 +812,38 @@ class IEDataset(Dataset):
                                                         config.get('max_entity_len', 10),
                                                         config.get('max_trigger_len', 2))
                                 for sent in doc.sentences)
+
+    def get_relation_labels_for_clusters(self, relations, mention_to_ent, entity_uids):
+        relation_type_level = self.config.get('relation_type_level', 'subtype')
+
+        cluster_num = max(mention_to_ent) + 1
+
+        labels = [[0] * cluster_num for i in range(cluster_num)]
+
+        relations_cl_set = set()
+
+        for rel_id, relation in enumerate(relations):
+            relation_type = relation.relation_type_idx
+            relation_type_rev = relation.relation_type_idx_rev
+            arg1 = relation.arg1.uid
+            arg2 = relation.arg2.uid
+            if arg1 == arg2:
+                continue
+            i = entity_uids.index(arg1)
+            j = entity_uids.index(arg2)
+            c_i = mention_to_ent[i]
+            c_j = mention_to_ent[j]
+
+            labels[c_i][c_j] = labels[c_j][c_i] = relation_type
+
+            if c_i > c_j:
+                c_i, c_j = c_j, c_i
+
+            relations_cl_set.add((c_i, c_j, relation.get_type(relation_type_level)))
+
+        relations_cl = list(relations_cl_set)
+
+        return labels, relations_cl
 
     def get_relation_labels(self, relations, entities, graph, entity_uids):
         #also adds missing relations to rels list
@@ -1079,20 +1112,7 @@ class IEDataset(Dataset):
             trigger_labels_sep.append(inst_trigger_labels_sep)
 
             # Relation labels
-            inst_relation_labels = self.get_relation_labels(inst['relations'],
-                                                            inst['entities'],
-                                                            inst['graph'],
-                                                            inst_pos_entity_uids)
-            #bad to do in collate...
 
-
-
-                                                            # max_entity_num)
-            relation_labels_sep.append(inst_relation_labels)
-            # print(inst_relation_labels)
-            # for x in inst_relation_labels:
-            #     relation_labels.extend(x)
-            relation_labels.append(inst_relation_labels)
 
             entity_num = len(inst['entities'])
 
@@ -1120,6 +1140,23 @@ class IEDataset(Dataset):
 
             inst['graph'].coref_matrix = inst_coref_labels
 
+            inst_relation_labels_cl, relations_cl = self.get_relation_labels_for_clusters(inst['relations'],
+                                                                          inst_mention_to_ent_coref,
+                                                                          inst_pos_entity_uids)
+
+            inst['graph'].relations = relations_cl
+
+
+
+            """inst_relation_labels = self.get_relation_labels(inst['relations'],
+                                                                        inst['entities'],
+                                                                        inst['graph'],
+                                                                        inst_pos_entity_uids)"""
+
+            # max_entity_num)
+            relation_labels_sep.append(inst_relation_labels_cl)
+
+            relation_labels.append(inst_relation_labels_cl)
 
 
             # Role labels

@@ -29,7 +29,7 @@ class SpanTransformer(nn.Module):
             #if final_pred_embeds:
             #    input_dim += et_dim + tt_dim
 
-            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8, dropout=0.3))
+            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8, dropout=0.1))
 
             self.layers.append(trans_layer)
 
