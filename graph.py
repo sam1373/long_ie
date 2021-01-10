@@ -1,5 +1,5 @@
 class Graph(object):
-    def __init__(self, entities, triggers, relations, roles, coref_matrix=None,
+    def __init__(self, entities, triggers, relations, roles, coref_matrix=None, cluster_labels=None,
                  mentions=None):
         """
         :param entities (list): A list of entities represented as a tuple of
@@ -21,6 +21,7 @@ class Graph(object):
         self.relations = relations
         self.roles = roles
         self.coref_matrix = coref_matrix
+        self.cluster_labels = cluster_labels
         self.mentions = [] if mentions is None else mentions
 
         self.entity_num = len(entities)

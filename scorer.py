@@ -1,6 +1,6 @@
 """Our scorer is adapted from: https://github.com/dwadden/dygiepp"""
 
-from util import get_coref_clusters, align_pred_to_gold
+from util import get_coref_clusters, align_pred_to_gold, clusters_from_cluster_labels
 import math
 from statistics import harmonic_mean
 
@@ -150,8 +150,12 @@ def score_graphs(gold_graphs, pred_graphs,
         men_match_num += len([mention for mention in pred_mentions
                               if mention in gold_mentions])"""
 
-        pred_entity_coref, pred_clusters = get_coref_clusters(pred_graph.coref_matrix)
-        gold_entity_cored, gold_clusters = get_coref_clusters(gold_graph.coref_matrix)
+        #pred_entity_coref, pred_clusters = get_coref_clusters(pred_graph.coref_matrix)
+        pred_cluster_labels = pred_graph.cluster_labels
+        pred_clusters = clusters_from_cluster_labels(pred_cluster_labels)
+        #gold_entity_coref, gold_clusters = get_coref_clusters(gold_graph.coref_matrix)
+        gold_cluster_labels = gold_graph.cluster_labels
+        gold_clusters = clusters_from_cluster_labels(gold_cluster_labels)
 
         pred_clusters_ment_aligned = [list(map(lambda x: alignment[x], c)) for c in pred_clusters]
 

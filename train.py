@@ -240,7 +240,7 @@ do_test = True
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
-    if epoch > 0:
+    if epoch > 0 and not args.debug:
         if epoch % 5 == 0 and cur_swap_prob < 0.6:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)

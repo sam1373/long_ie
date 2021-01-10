@@ -163,7 +163,7 @@ class OneIEpp(nn.Module):
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len])
         self.type_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['entity'])])
 
-        self.relation_clf = Linears([token_initial_dim * 2, hidden_dim, len(vocabs['relation'])])
+        self.relation_clf = Linears([token_initial_dim * 2, hidden_dim, hidden_dim, len(vocabs['relation'])])
 
         self.coref_embed = Linears([token_initial_dim, hidden_dim, coref_embed_dim])
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
@@ -193,7 +193,7 @@ class OneIEpp(nn.Module):
         #event_weights[0] /= 3.
 
         rel_weights = torch.ones(len(vocabs['relation'])).cuda()
-        #rel_weights[0] /= 5.
+        rel_weights[0] /= 5.
 
         role_weights = torch.ones(len(vocabs['role'])).cuda()
         #role_weights[0] /= len(vocabs['role'])
@@ -398,6 +398,8 @@ class OneIEpp(nn.Module):
 
         #importance = self.importance_score(encoder_outputs)
 
+
+
         ##try only start tokens
         #V
 
@@ -438,6 +440,8 @@ class OneIEpp(nn.Module):
 
         entity_spans = self.span_transformer(entity_spans)
 
+        cluster_labels = None
+
         if self.config.get("do_coref"):
             coref_embed = self.coref_embed(entity_spans)
 
@@ -466,11 +470,11 @@ class OneIEpp(nn.Module):
 
                 cluster_noise = torch.randint(0, cluster_num, true_clusters.shape).cuda()
 
-                cluster_mask = torch.rand(true_clusters.shape).cuda() > 0.7
+                cluster_mask = torch.rand(true_clusters.shape).cuda() > 0.8
 
                 noisy_clusters = torch.clone(true_clusters)
 
-                noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
+                #noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
 
                 entity_means = torch_scatter.scatter_mean(entity_spans, noisy_clusters, dim=1)
 
@@ -482,6 +486,8 @@ class OneIEpp(nn.Module):
                 entity_aggr_aligned = torch.gather(entity_means, 1,
                                                  noisy_clusters.unsqueeze(-1).
                                                  expand(-1, -1, entity_means.shape[-1]))
+
+                cluster_labels = noisy_clusters
 
             #print()
             #cluster_num = entity_means.shape[1]
@@ -511,12 +517,12 @@ class OneIEpp(nn.Module):
             else:
                 relation_pred = None
 
-        return is_start_pred, len_from_here_pred, type_pred, coref_embed, relation_pred
+        return is_start_pred, len_from_here_pred, type_pred, cluster_labels, coref_embed, relation_pred
 
 
 
     def forward(self, batch: Batch, last_only: bool = True, epoch=0):
-        is_start, len_from_here, type_pred, coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
+        is_start, len_from_here, type_pred, cluster_labels, coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
         loss_names = []
@@ -641,10 +647,14 @@ class OneIEpp(nn.Module):
 
             relation_pred = relation_pred.view(-1, relation_pred.shape[-1])
 
-            relation_loss = self.criteria(relation_pred,
-                                               batch.relation_labels.view(-1)[:relation_pred.shape[0]])
+            relation_loss = self.relation_loss(relation_pred,
+                                               batch.relation_labels.view(-1)[:relation_pred.shape[0]])# * 10.
 
+            print()
             print(relation_loss)
+            #print(relation_pred.argmax(-1))
+            #print(batch.relation_labels.view(-1))
+            print(((relation_pred.argmax(-1) - batch.relation_labels.view(-1)) > 0).sum())
 
             if not torch.isnan(relation_loss):
                 loss.append(relation_loss)

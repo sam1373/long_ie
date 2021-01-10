@@ -394,6 +394,7 @@ def build_information_graph(batch,
                             is_start,
                             len_from_here,
                             type_pred,
+                            cluster_labels,
                             coref_embeds,
                             relation_pred,
                             vocabs):
@@ -414,9 +415,11 @@ def build_information_graph(batch,
 
             #coref_matrix = np.linalg.norm(coref_embeds_cur[:, None, :] - coref_embeds_cur[None, :, :], axis=-1)
 
-            clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).fit(coref_embeds_cur)
+            ##clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).fit(coref_embeds_cur)
             #clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
             #clustering = DBSCAN(min_samples=2).fit(coref_embeds_cur)
+
+
 
             #coref_preds = []
             coref_matrix = []
@@ -427,7 +430,7 @@ def build_information_graph(batch,
 
                     if i == j:
                         new_l.append(1)
-                    elif clustering.labels_[i] == clustering.labels_[j] and clustering.labels_[i] != -1:
+                    elif cluster_labels[graph_idx, i] == cluster_labels[graph_idx, j] and cluster_labels[graph_idx, i] != -1:
                         #coref_preds.append(1)
                         new_l.append(1)
                     else:
@@ -439,10 +442,14 @@ def build_information_graph(batch,
 
         cur_ent = 0
 
+        is_start_pred_cur = is_start[graph_idx].argmax(-1).tolist()
+        len_from_here_pred_cur = len_from_here[graph_idx].argmax(-1).tolist()
+
+
         for j in range(is_start.shape[1]):
-            if is_start[graph_idx, j].argmax().item() == 1:
+            if is_start_pred_cur[j] == 1:
                 start = j
-                end = j + len_from_here[graph_idx, j].argmax().item()
+                end = j + len_from_here_pred_cur[j]
                 #type = type_from_here[graph_idx, j].argmax().item()
                 type = type_pred[graph_idx, cur_ent].argmax().item()
                 cur_ent += 1
@@ -454,7 +461,7 @@ def build_information_graph(batch,
         relations = []
 
         if relation_pred is not None:
-            cluster_num = max(clustering.labels_) + 1
+            cluster_num = cluster_labels[graph_idx].max() + 1
 
             rel_matrix = relation_pred[graph_idx].view(cluster_num, cluster_num, -1)
 
@@ -465,7 +472,7 @@ def build_information_graph(batch,
                     if rel_pred > 0:
                         relations.append((i, j, relation_itos[rel_pred]))
 
-        graphs.append(Graph(entities, [], relations, [], coref_matrix))
+        graphs.append(Graph(entities, [], relations, [], coref_matrix, cluster_labels[graph_idx].tolist()))
 
     return graphs
 
@@ -512,6 +519,16 @@ def get_coref_clusters(coref_matrix):
         coref_cluster_lists[coref_entities[i]].append(i)
 
     return coref_entities, coref_cluster_lists
+
+def clusters_from_cluster_labels(cluster_labels):
+
+    num_clusters = max(cluster_labels) + 1
+    clusters = [[] for i in range(num_clusters)]
+
+    for i, cl in enumerate(cluster_labels):
+        clusters[cl].append(i)
+
+    return clusters
 
 def align_pred_to_gold(true_entities, pred_entities):
     rev_true = defaultdict(lambda: -1)
@@ -763,14 +780,14 @@ def summary_graph(pred_graph, true_graph, batch,
         writer.add_text(prefix + "notpred_coref_pairs", "\n".join(map(str, notpred_coref_pairs_actually)), global_step)
 
         coref_dict = dict()
-        pred_clusters = []
+        pred_clusters = clusters_from_cluster_labels(pred_graph.cluster_labels)
 
         for i in range(entity_num):
             if coref_entities[i] not in coref_dict:
                 coref_dict[coref_entities[i]] = len(coref_dict)
                 pred_clusters.append([])
             coref_entities[i] = coref_dict[coref_entities[i]]
-            pred_clusters[coref_entities[i]].append(i)
+            #pred_clusters[coref_entities[i]].append(i)
 
         pred_coref_ent = max(coref_entities, default=-1)
 
@@ -907,8 +924,14 @@ def summary_graph(pred_graph, true_graph, batch,
     predicted_relations = []
 
     for (a, b, t) in pred_graph.relations[:50]:
-        arg1 = predicted_entities[pred_clusters[a][0]][0]
-        arg2 = predicted_entities[pred_clusters[b][0]][0]
+        if len(pred_clusters[a]) == 0:
+            arg1 = "None"
+        else:
+            arg1 = predicted_entities[pred_clusters[a][0]][0]
+        if len(pred_clusters[b]) == 0:
+            arg2 = "None"
+        else:
+            arg2 = predicted_entities[pred_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
         predicted_relations.append((arg1, arg2, t))
