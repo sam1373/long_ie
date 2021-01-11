@@ -13,6 +13,8 @@ from random import random
 
 from collections import defaultdict
 
+import torch.nn.functional as F
+
 def argmax(lst):
     max_idx = -1
     max_value = -100000
@@ -472,7 +474,12 @@ def build_information_graph(batch,
                     if rel_pred > 0:
                         relations.append((i, j, relation_itos[rel_pred]))
 
-        graphs.append(Graph(entities, [], relations, [], coref_matrix, cluster_labels[graph_idx].tolist()))
+        cur_graph = Graph(entities, [], relations, [], coref_matrix, cluster_labels[graph_idx].tolist())
+
+        if relation_pred is not None:
+            cur_graph.rel_probs = rel_matrix
+
+        graphs.append(cur_graph)
 
     return graphs
 
@@ -934,7 +941,8 @@ def summary_graph(pred_graph, true_graph, batch,
             arg2 = predicted_entities[pred_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
-        predicted_relations.append((arg1, arg2, t))
+        probs = F.log_softmax(pred_graph.rel_probs[a, b]).tolist()
+        predicted_relations.append((arg1, arg2, t, probs))
 
     true_relations = []
 
