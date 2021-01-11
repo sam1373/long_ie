@@ -163,7 +163,9 @@ class LongIE(nn.Module):
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len])
         self.type_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['entity'])])
 
-        self.relation_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, len(vocabs['relation'])])
+        self.relation_any_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, 2])
+
+        self.relation_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['relation'])])
 
         self.coref_embed = Linears([token_initial_dim, hidden_dim, coref_embed_dim])
 
@@ -183,10 +185,12 @@ class LongIE(nn.Module):
                                                 final_pred_embeds=False,
                                                 num_layers=span_transformer_layers)
 
-        """self.span_pair_transformer = SpanTransformer(span_dim=token_initial_dim * 2,
+        self.rel_compress = nn.Linear(token_initial_dim * 2 + type_embed_dim * 2, token_initial_dim)
+
+        self.span_pair_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                      vocabs=vocabs,
                                                      final_pred_embeds=False,
-                                                     num_layers=span_transformer_layers)"""
+                                                     num_layers=span_transformer_layers)
 
 
         self.word_embed = word_embed
@@ -209,7 +213,8 @@ class LongIE(nn.Module):
         self.event_loss = nn.CrossEntropyLoss(weight=event_weights)
         self.relation_loss = nn.CrossEntropyLoss(weight=rel_weights)
         self.role_loss = nn.CrossEntropyLoss(weight=role_weights)
-        self.span_loss = nn.CrossEntropyLoss(weight=torch.Tensor([0.1, 1.]).cuda())
+
+        self.relation_nonzero_loss = nn.CrossEntropyLoss(weight=torch.Tensor([0.05, 1.]).cuda())
         self.criteria = nn.CrossEntropyLoss()
 
     def label_size(self, key: str):
@@ -449,6 +454,12 @@ class LongIE(nn.Module):
 
         cluster_labels = None
 
+        relation_pred = None
+
+        relation_any = None
+
+        relation_true_for_cand = None
+
         if self.config.get("do_coref"):
             coref_embed = self.coref_embed(entity_spans)
 
@@ -456,10 +467,11 @@ class LongIE(nn.Module):
 
                 cluster_labels = torch.zeros(coref_embed.shape[:2]).cuda().long()
 
-                for b in range(batch_size):
-                    clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).\
-                        fit(coref_embed[b].detach().cpu().numpy())
-                    cluster_labels[b] = torch.LongTensor(clustering.labels_).cuda()
+                if cluster_labels.shape[1] > 1:
+                    for b in range(batch_size):
+                        clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).\
+                            fit(coref_embed[b].detach().cpu().numpy())
+                        cluster_labels[b] = torch.LongTensor(clustering.labels_).cuda()
 
                 entity_means = torch_scatter.scatter_mean(entity_spans, cluster_labels, dim=1)
 
@@ -503,6 +515,8 @@ class LongIE(nn.Module):
             #print()
             #cluster_num = entity_means.shape[1]
 
+
+
             if self.config.get("classify_relations"):
                 pair_ids = torch.LongTensor(get_pairwise_idxs(cluster_num, cluster_num)).cuda()
                 entity_pairs = torch.gather(entity_means, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
@@ -519,9 +533,37 @@ class LongIE(nn.Module):
 
                 #entity_pairs = self.span_pair_transformer(entity_pairs)
 
-                relation_pred = self.relation_clf(entity_pairs)
-            else:
-                relation_pred = None
+                relation_any = self.relation_any_clf(entity_pairs)
+
+                relation_cand = (relation_any.argmax(-1) == 1)
+
+                total_rel_cand = relation_cand.sum()
+
+                if total_rel_cand > 200 or total_rel_cand == 0:
+                    relation_pred = torch.zeros(batch_size, 1, len(self.vocabs['relation'])).cuda()
+                    relation_true_for_cand = torch.zeros(batch_size, 1).cuda().long()
+
+                else:
+                    relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs.shape[-1]).cuda()
+                    if not predict:
+                        relation_true_for_cand = torch.zeros(batch_size, total_rel_cand).cuda().long()
+                    cur_idx = 0
+                    for b in range(batch_size):
+                        for i in range(cluster_num):
+                            for j in range(i + 1, cluster_num):
+                                pair_idx = i * cluster_num + j
+                                if relation_any.argmax(-1)[b, pair_idx] == 1:
+                                    relation_cand_pairs[b, cur_idx] = entity_pairs[b, pair_idx]
+                                    if not predict:
+                                        relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
+                                    cur_idx += 1
+
+                    relation_cand_pairs = self.rel_compress(relation_cand_pairs)
+
+                    relation_cand_pairs = self.span_pair_transformer(relation_cand_pairs)
+
+                    relation_pred = self.relation_clf(relation_cand_pairs)
+
 
             entity_spans = entity_aggr_aligned
 
@@ -539,12 +581,15 @@ class LongIE(nn.Module):
             else:
                 relation_pred = None
 
-        return is_start_pred, len_from_here_pred, type_pred, cluster_labels, coref_embed, relation_pred
+        return is_start_pred, len_from_here_pred, type_pred, cluster_labels, relation_any, relation_true_for_cand, coref_embed, relation_pred
 
 
 
     def forward(self, batch: Batch, last_only: bool = True, epoch=0):
-        is_start, len_from_here, type_pred, cluster_labels, coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
+        is_start, len_from_here, type_pred, cluster_labels,\
+        relation_any, relation_true_for_cand,\
+        coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
+
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
         loss_names = []
@@ -667,16 +712,27 @@ class LongIE(nn.Module):
                             
             span_rel_label_matrix = []"""
 
-            relation_pred = relation_pred.view(-1, relation_pred.shape[-1])
+            #relation_pred = relation_pred.view(-1, relation_pred.shape[-1])
 
-            relation_loss = self.relation_loss(relation_pred,
-                                               batch.relation_labels.view(-1)[:relation_pred.shape[0]]) * 5.
+            relation_nonzero_loss = self.relation_nonzero_loss(relation_any.view(-1, 2),
+                                                  (batch.relation_labels.view(-1) > 0).long())
+
+            print(relation_any.argmax(-1).sum())
+            print((batch.relation_labels.view(-1) > 0).long().sum())
+
+            relation_loss = self.criteria(relation_pred.view(-1, relation_pred.shape[-1]),
+                                          relation_true_for_cand.view(-1))
+
+            #relation_loss = self.relation_loss(relation_pred,
+            #                                   batch.relation_labels.view(-1)[:relation_pred.shape[0]]) * 5.
 
             #print(relation_pred.argmax(-1))
             #print(batch.relation_labels.view(-1))
             #print(((relation_pred.argmax(-1) - batch.relation_labels.view(-1)) > 0).sum())
 
             if not torch.isnan(relation_loss):
+                loss.append(relation_nonzero_loss)
+                loss_names.append("relation_nonzero")
                 loss.append(relation_loss)
                 loss_names.append("relation")
             else:
@@ -696,10 +752,10 @@ class LongIE(nn.Module):
 
         return loss, loss_names
 
-    def predict(self, batch: Batch, epoch=0):
+    def predict(self, batch: Batch, epoch=0, gold_inputs=False):
         self.eval()
         with torch.no_grad():
-            result = self.forward_nn(batch, predict=True, epoch=epoch)
+            result = self.forward_nn(batch, predict=(not gold_inputs), epoch=epoch)
 
         self.train()
         return result

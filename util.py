@@ -397,9 +397,12 @@ def build_information_graph(batch,
                             len_from_here,
                             type_pred,
                             cluster_labels,
+                            relation_any,
+                            relation_true_for_cand,
                             coref_embeds,
                             relation_pred,
-                            vocabs):
+                            vocabs,
+                            gold_inputs=False):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
     relation_itos = {i: s for s, i in vocabs['relation'].items()}
@@ -447,6 +450,14 @@ def build_information_graph(batch,
         is_start_pred_cur = is_start[graph_idx].argmax(-1).tolist()
         len_from_here_pred_cur = len_from_here[graph_idx].argmax(-1).tolist()
 
+        cur_clusters = cluster_labels[graph_idx]
+
+        if gold_inputs:
+            is_start_pred_cur = batch.is_start[graph_idx].tolist()
+            len_from_here_pred_cur = batch.len_from_here[graph_idx].tolist()
+
+            cur_clusters = batch.mention_to_ent_coref[graph_idx]
+
 
         for j in range(is_start.shape[1]):
             if is_start_pred_cur[j] == 1:
@@ -463,21 +474,35 @@ def build_information_graph(batch,
         relations = []
 
         if relation_pred is not None:
-            cluster_num = cluster_labels[graph_idx].max() + 1
+            cluster_num = cur_clusters.max() + 1
 
-            rel_matrix = relation_pred[graph_idx].view(cluster_num, cluster_num, -1)
+            rel_matrix_nonzero = relation_any[graph_idx].view(cluster_num, cluster_num, -1)
+            cur_idx = 0
 
-            for i in range(cluster_num):
-                for j in range(i + 1, cluster_num):
-                    rel_pred = rel_matrix[i, j].argmax().item()
+            print(rel_matrix_nonzero.argmax(-1).sum())
 
-                    if rel_pred > 0:
-                        relations.append((i, j, relation_itos[rel_pred]))
+            nonzero_final_probs = []
+
+            if not(rel_matrix_nonzero.argmax(-1).sum() > 200 or rel_matrix_nonzero.argmax(-1).sum() == 0):
+
+                for i in range(cluster_num):
+                    for j in range(i + 1, cluster_num):
+
+                        if rel_matrix_nonzero[i, j].argmax(-1) == 1:
+
+
+                            rel_pred = relation_pred[graph_idx, cur_idx].argmax().item()
+
+                            if rel_pred > 0:
+                                relations.append((i, j, relation_itos[rel_pred]))
+                                nonzero_final_probs.append(relation_pred[graph_idx, cur_idx])
+
+                            cur_idx += 1
 
         cur_graph = Graph(entities, [], relations, [], coref_matrix, cluster_labels[graph_idx].tolist())
 
         if relation_pred is not None:
-            cur_graph.rel_probs = rel_matrix
+            cur_graph.rel_probs = nonzero_final_probs
 
         graphs.append(cur_graph)
 
@@ -813,7 +838,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
         writer.add_text(prefix + "pred_coref_text", pred_coref_text, global_step)
 
-        if coref_embeds.shape[-1] != 2:
+        if coref_embeds.shape[-1] != 2 and coref_embeds.shape[1] > 1:
             coref_embeds = coref_embeds.cpu().numpy()
             coref_embeds = TSNE(n_components=2).fit_transform(coref_embeds)
 
@@ -930,7 +955,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     predicted_relations = []
 
-    for (a, b, t) in pred_graph.relations[:50]:
+    for i, (a, b, t) in enumerate(pred_graph.relations[:50]):
         if len(pred_clusters[a]) == 0:
             arg1 = "None"
         else:
@@ -941,7 +966,7 @@ def summary_graph(pred_graph, true_graph, batch,
             arg2 = predicted_entities[pred_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
-        probs = F.log_softmax(pred_graph.rel_probs[a, b]).tolist()
+        probs = F.log_softmax(pred_graph.rel_probs[i]).tolist()
         predicted_relations.append((arg1, arg2, t, probs))
 
     true_relations = []
@@ -1107,8 +1132,8 @@ class RegLayer(nn.Module):
         super(RegLayer, self).__init__()
 
         #self.drop = nn.Dropout(d)
-        # self.norm = nn.LayerNorm(hid_dim)
-        self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
+        self.norm = nn.LayerNorm(hid_dim)
+        #self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
 
         self.s = s
 
@@ -1121,9 +1146,9 @@ class RegLayer(nn.Module):
         #x = self.drop(x)
 
         # print(x.shape)
-        x = x.transpose(-2, -1)
+        #x = x.transpose(-2, -1)
         # print(x.shape)
         x = self.norm(x)
-        x = x.transpose(-2, -1)
+        #x = x.transpose(-2, -1)
 
         return x

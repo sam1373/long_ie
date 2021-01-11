@@ -116,7 +116,7 @@ def compute_cluster_metrics(predicted_clusters, gold_clusters, predicted_entitie
 
 
 def score_graphs(gold_graphs, pred_graphs,
-                 relation_directional=False):
+                 relation_directional=False, gold_inputs=False):
     gold_arg_num = pred_arg_num = arg_idn_num = arg_class_num = 0
     gold_trigger_num = pred_trigger_num = trigger_idn_num = trigger_class_num = 0
     gold_ent_num = pred_ent_num = ent_match_num = ent_overlap_match_num = 0
@@ -137,7 +137,10 @@ def score_graphs(gold_graphs, pred_graphs,
         ent_overlap_match_num += len([entity for entity in pred_entities
                                       if any([span_match(entity, s2) > 0.5 for s2 in gold_entities])])
 
-        alignment = align_pred_to_gold(gold_entities, pred_entities)
+        if gold_inputs:
+            alignment = list(range(len(gold_entities)))
+        else:
+            alignment = align_pred_to_gold(gold_entities, pred_entities)
 
         not_predicted_idx = set(range(len(gold_entities))) - set(alignment)
 
@@ -179,6 +182,9 @@ def score_graphs(gold_graphs, pred_graphs,
         matched_p += num_matched / len(pred_clusters)
         matched_r += num_matched / len(gold_clusters)
 
+        if gold_inputs:
+            pred_clusters_aligned = list(range(len(gold_clusters)))
+
 
 
         # g_c_m = compute_cluster_metrics(pred_clusters, gold_clusters, pred_entities, gold_entities)
@@ -203,6 +209,7 @@ def score_graphs(gold_graphs, pred_graphs,
         pred_relations = pred_graph.relations
         gold_rel_num += len(gold_relations)
         pred_rel_num += len(pred_relations)
+        cur_matched = 0
         for arg1, arg2, rel_type in pred_relations:
             # arg1_start, arg1_end, _ = pred_entities[arg1]
             # arg2_start, arg2_end, _ = pred_entities[arg2]
@@ -220,9 +227,10 @@ def score_graphs(gold_graphs, pred_graphs,
                         break
                 else:
                     if ((arg1 == arg1_gold and arg2 == arg2_gold) or (
-                            arg1 == arg2_gold and arg1 == arg2_gold
+                            arg1 == arg2_gold and arg2 == arg1_gold
                     )) and rel_type == rel_type_gold:
                         rel_match_num += 1
+                        cur_matched += 1
                         break
 
         # Trigger

@@ -6,7 +6,10 @@ from argparse import ArgumentParser
 import torch
 from torch.utils.data import DataLoader
 from transformers import (LongformerModel, LongformerTokenizer,
-                          RobertaTokenizer, BertConfig, AdamW,
+                          RobertaTokenizer, BertConfig, BertTokenizer,
+                          AutoTokenizer,
+                          AutoModel,
+                          AdamW,
                           ElectraTokenizer, ElectraForMaskedLM,
                           XLNetModel, XLNetTokenizer,
                           get_linear_schedule_with_warmup)
@@ -100,6 +103,12 @@ tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
                                              do_lower_case=False)
 
 
+#tokenizer = BertTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
+
+
+#tokenizer = AutoTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
+
+
 #tokenizer = XLNetTokenizer.from_pretrained("xlnet-base-cased")
 
 wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-generator')
@@ -170,6 +179,8 @@ else:
 bert = LongformerModel.from_pretrained(config.bert_model_name)
 
 #bert = XLNetModel.from_pretrained("xlnet-base-cased")
+
+#bert = AutoModel.from_pretrained("SpanBERT/spanbert-base-cased")
 
 bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
@@ -336,7 +347,7 @@ for epoch in range(epoch_num):
                             batch_size,
                             shuffle=False,
                             collate_fn=dev_set.collate_fn)
-    gold_dev_graphs, pred_dev_graphs = [], []
+    gold_dev_graphs, pred_dev_graphs, pred_dev_gold_input_graphs = [], [], []
     dev_sent_ids, dev_tokens = [], []
 
     if epoch % 5 == 0:
@@ -346,21 +357,17 @@ for epoch in range(epoch_num):
 
             coref_embeds = result[-2]
 
-            #max_entity_pred = max(max_entity_pred, result[3][0])
-
-            # writer.add_image("dev_entity_span_scores", result[1]['entity'].softmax(1).unsqueeze(0).cpu(), global_step)
-
-            """dev_entity_span_table = torch.cat((result[1]['entity'].softmax(1),
-                                               label2onehot(batch.entity_labels,
-                                                            entity_label_size).float()), dim=1).unsqueeze(0).cpu()
-    
-            writer.add_image("dev_entity_span_table", dev_entity_span_table, global_step)"""
-
             pred_graphs = build_information_graph(batch, *result, vocabs)
 
-            if batch_idx % 8 == 0:
+            if batch_idx % 10 == 0:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs, coref_embeds)
+
+            result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
+
+            pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs, gold_inputs=True)
+
+            pred_dev_gold_input_graphs.extend(pred_gold_input_graphs)
 
             pred_dev_graphs.extend(pred_graphs)
             gold_dev_graphs.extend(batch.graphs)
@@ -373,6 +380,8 @@ for epoch in range(epoch_num):
 
         print('Dev')
         dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs, False)
+        print('Dev Gold Inputs')
+        dev_g_i_scores = score_graphs(gold_dev_graphs, pred_dev_gold_input_graphs, False)
         """save_result(os.path.join(output_path, 'dev.result.{}.json'.format(epoch)),
                     gold_dev_graphs,
                     pred_dev_graphs,
@@ -383,6 +392,9 @@ for epoch in range(epoch_num):
 
         for k, v in dev_scores.items():
             writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
+
+        for k, v in dev_g_i_scores.items():
+            writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
         score_to_use = "entity"
 
@@ -397,12 +409,18 @@ for epoch in range(epoch_num):
                                  batch_size,
                                  shuffle=False,
                                  collate_fn=test_set.collate_fn)
-        gold_test_graphs, pred_test_graphs = [], []
+        gold_test_graphs, pred_test_graphs, pred_test_gold_input_graphs = [], [], []
         test_sent_ids, test_tokens = [], []
         for batch in tqdm(test_loader, ncols=75):
             result = model.predict(batch)
 
             pred_graphs = build_information_graph(batch, *result, vocabs)
+
+            result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
+
+            pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs, gold_inputs=True)
+
+            pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
 
             pred_test_graphs.extend(pred_graphs)
             gold_test_graphs.extend(batch.graphs)
@@ -416,6 +434,8 @@ for epoch in range(epoch_num):
 
         print('Test')
         test_scores = score_graphs(gold_test_graphs, pred_test_graphs, False)
+        print('Test Gold Inputs')
+        test_g_i_scores = score_graphs(gold_test_graphs, pred_test_gold_input_graphs, False, gold_inputs=True)
         """save_result(os.path.join(output_path, 'test.result.{}.json'.format(epoch)),
                     gold_test_graphs,
                     pred_test_graphs,
@@ -426,6 +446,9 @@ for epoch in range(epoch_num):
 
         for k, v in test_scores.items():
             writer.add_scalar('test_' + k + '_f', v['f'], global_step)
+
+        for k, v in test_g_i_scores.items():
+            writer.add_scalar('test_gi_' + k + '_f', v['f'], global_step)
 
     # log_writer.write(json.dumps({'epoch': epoch,
     #                             'dev': dev_scores,
