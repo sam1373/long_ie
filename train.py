@@ -10,7 +10,7 @@ from transformers import (LongformerModel, LongformerTokenizer,
                           ElectraTokenizer, ElectraForMaskedLM,
                           XLNetModel, XLNetTokenizer,
                           get_linear_schedule_with_warmup)
-from model import OneIEpp, Linears, PairLinears
+from model import LongIE, Linears, PairLinears
 from graph import Graph
 from config import Config
 # from data import IEDataset
@@ -175,14 +175,14 @@ bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
     bert_dim *= 2
 
-model = OneIEpp(config,
-                vocabs,
-                bert,
-                word_embed=word_embed,
-                extra_bert=extra_bert,
-                word_embed_dim=word_embed_dim,
-                coref_embed_dim=config.coref_embed_dim,
-                hidden_dim=config.hidden_dim,)
+model = LongIE(config,
+               vocabs,
+               bert,
+               word_embed=word_embed,
+               extra_bert=extra_bert,
+               word_embed_dim=word_embed_dim,
+               coref_embed_dim=config.coref_embed_dim,
+               hidden_dim=config.hidden_dim, )
 
 # model.load_bert(model_name, cache_dir=config.bert_cache_dir)
 if use_gpu:

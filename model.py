@@ -131,8 +131,7 @@ class PairLinears(nn.Module):
         return self.output_linear(h)
 
 
-class OneIEpp(nn.Module):
-    """OneIE++ model."""
+class LongIE(nn.Module):
     def __init__(self,
                  config,
                  vocabs: Dict[str, Dict[str, int]],
@@ -144,6 +143,7 @@ class OneIEpp(nn.Module):
                  hidden_dim: int = 500,#500
                  span_transformer_layers: int = 10,#10
                  encoder_dropout_prob: float = 0.2,
+                 type_embed_dim: int = 32,
                  ):
         super().__init__()
 
@@ -163,9 +163,11 @@ class OneIEpp(nn.Module):
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len])
         self.type_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['entity'])])
 
-        self.relation_clf = Linears([token_initial_dim * 2, hidden_dim, hidden_dim, len(vocabs['relation'])])
+        self.relation_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, len(vocabs['relation'])])
 
         self.coref_embed = Linears([token_initial_dim, hidden_dim, coref_embed_dim])
+
+        self.type_embed = nn.Embedding(len(vocabs['entity']), type_embed_dim)
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
 
         #self.importance_score = Linears([token_initial_dim, 128, 1])
@@ -180,6 +182,11 @@ class OneIEpp(nn.Module):
                                                 vocabs=vocabs,
                                                 final_pred_embeds=False,
                                                 num_layers=span_transformer_layers)
+
+        """self.span_pair_transformer = SpanTransformer(span_dim=token_initial_dim * 2,
+                                                     vocabs=vocabs,
+                                                     final_pred_embeds=False,
+                                                     num_layers=span_transformer_layers)"""
 
 
         self.word_embed = word_embed
@@ -489,6 +496,10 @@ class OneIEpp(nn.Module):
 
                 cluster_labels = noisy_clusters
 
+            type_pred_cl = self.type_clf(entity_means)
+
+
+
             #print()
             #cluster_num = entity_means.shape[1]
 
@@ -496,7 +507,18 @@ class OneIEpp(nn.Module):
                 pair_ids = torch.LongTensor(get_pairwise_idxs(cluster_num, cluster_num)).cuda()
                 entity_pairs = torch.gather(entity_means, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
                                                                                             entity_spans.shape[2]))
-                entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_spans.shape[2] * 2)
+                type_pred_cl = type_pred_cl.argmax(-1)
+                type_pred_cl_embed = self.type_embed(type_pred_cl)
+                entity_type_pairs = torch.gather(type_pred_cl_embed, 1,
+                                                 pair_ids.view(1, -1, 1).
+                                                 expand(entity_spans.shape[0], -1, type_pred_cl_embed.shape[2]))
+
+                entity_pairs = torch.cat((entity_pairs, entity_type_pairs), dim=-1)
+
+                entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_pairs.shape[2] * 2)
+
+                #entity_pairs = self.span_pair_transformer(entity_pairs)
+
                 relation_pred = self.relation_clf(entity_pairs)
             else:
                 relation_pred = None
@@ -648,13 +670,11 @@ class OneIEpp(nn.Module):
             relation_pred = relation_pred.view(-1, relation_pred.shape[-1])
 
             relation_loss = self.relation_loss(relation_pred,
-                                               batch.relation_labels.view(-1)[:relation_pred.shape[0]])# * 10.
+                                               batch.relation_labels.view(-1)[:relation_pred.shape[0]]) * 5.
 
-            print()
-            print(relation_loss)
             #print(relation_pred.argmax(-1))
             #print(batch.relation_labels.view(-1))
-            print(((relation_pred.argmax(-1) - batch.relation_labels.view(-1)) > 0).sum())
+            #print(((relation_pred.argmax(-1) - batch.relation_labels.view(-1)) > 0).sum())
 
             if not torch.isnan(relation_loss):
                 loss.append(relation_loss)

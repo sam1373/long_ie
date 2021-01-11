@@ -124,6 +124,7 @@ def score_graphs(gold_graphs, pred_graphs,
     gold_men_num = pred_men_num = men_match_num = 0
     # gold_cluster_matched = gold_cluster_total = pred_cluster_total = 0
     cluster_p = cluster_r = 0
+    matched_p = matched_r = 0
 
     for gold_graph, pred_graph in zip(gold_graphs, pred_graphs):
         # Entity
@@ -175,8 +176,10 @@ def score_graphs(gold_graphs, pred_graphs,
             if not found:
                 pred_clusters_aligned.append(-1)
 
-        matched_prec = num_matched / len(pred_clusters)
-        matched_rec = num_matched / len(gold_clusters)
+        matched_p += num_matched / len(pred_clusters)
+        matched_r += num_matched / len(gold_clusters)
+
+
 
         # g_c_m = compute_cluster_metrics(pred_clusters, gold_clusters, pred_entities, gold_entities)
         r, p, f = b_cubed_modified(gold_clusters, pred_clusters_ment_aligned, len(gold_entities), max_pred_ent,
@@ -276,6 +279,10 @@ def score_graphs(gold_graphs, pred_graphs,
     cluster_rec = cluster_r / len(gold_graphs)
     cluster_f = harmonic_mean((cluster_prec, cluster_rec))
 
+    matched_p = matched_p / len(gold_graphs)
+    matched_r = matched_r / len(gold_graphs)
+    matched_f = harmonic_mean((matched_p, matched_r))
+
     print('Entity: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         entity_prec * 100.0, entity_rec * 100.0, entity_f * 100.0))
     print('Entity Overlap 0.5: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
@@ -294,6 +301,8 @@ def score_graphs(gold_graphs, pred_graphs,
         role_prec * 100.0, role_rec * 100.0, role_f * 100.0))
     print('Entity Clusters: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         cluster_prec * 100.0, cluster_rec * 100.0, cluster_f * 100.0))
+    print('Entity Cluster Match: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+        matched_p * 100.0, matched_r * 100.0, matched_f * 100.0))
 
     scores = {
         'entity': {'prec': entity_prec, 'rec': entity_rec, 'f': entity_f},
@@ -306,7 +315,8 @@ def score_graphs(gold_graphs, pred_graphs,
         'role_id': {'prec': role_id_prec, 'rec': role_id_rec, 'f': role_id_f},
         'relation': {'prec': relation_prec, 'rec': relation_rec,
                      'f': relation_f},
-        'entity_clusters': {'prec': cluster_prec, 'rec': cluster_rec, 'f': cluster_f}
+        'entity_clusters': {'prec': cluster_prec, 'rec': cluster_rec, 'f': cluster_f},
+        'cluster_matched': {'prec': matched_p, 'rec': matched_r, 'f': matched_f}
     }
     return scores
 
