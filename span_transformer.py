@@ -132,7 +132,7 @@ class AggrTransformer(nn.Module):
 
         self.span_dim = span_dim
 
-        self.aggr_emb = nn.Parameter(torch.zeros(span_dim).cuda())
+        self.aggr_emb = nn.Parameter(torch.randn(span_dim).cuda() * 0.1)
 
         self.layers = []
 
@@ -150,7 +150,7 @@ class AggrTransformer(nn.Module):
     def forward(self, span_repr):
 
 
-        span_repr[:, 0] = self.aggr_emb
+        span_repr[:, 0] += self.aggr_emb
 
         for l in self.layers:
 

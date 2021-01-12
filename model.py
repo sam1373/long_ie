@@ -165,14 +165,14 @@ class LongIE(nn.Module):
 
         self.relation_any_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, 2])
 
-        self.relation_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['relation'])])
+        self.relation_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, len(vocabs['relation'])])
 
         self.coref_embed = Linears([token_initial_dim, hidden_dim, coref_embed_dim])
 
         self.type_embed = nn.Embedding(len(vocabs['entity']), type_embed_dim)
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
 
-        #self.importance_score = Linears([token_initial_dim, 128, 1])
+        self.entity_importance_weight = Linears([token_initial_dim, hidden_dim, 1])
 
 
         #self.span_candidate_classifier = Linears([node_dim, 200, 200, 2],
@@ -503,10 +503,10 @@ class LongIE(nn.Module):
 
                 noisy_clusters = torch.clone(true_clusters)
 
-                noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
+                #noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
 
                 #to not mess up number of clusters
-                noisy_clusters[true_clusters == cluster_num] = cluster_num
+                #noisy_clusters[true_clusters == cluster_num] = cluster_num
 
                 #entity_means = torch_scatter.scatter_mean(entity_spans, noisy_clusters, dim=1)
 
@@ -521,6 +521,7 @@ class LongIE(nn.Module):
 
                 cluster_labels = noisy_clusters
 
+            entity_imp = self.entity_importance_weight(entity_spans)
 
             cluster_lists = [[] for i in range(cluster_num)]
 
@@ -532,17 +533,34 @@ class LongIE(nn.Module):
             max_in_cluster = max([len(cl) for cl in cluster_lists])
 
             #+ 1 for aggregating
-            ent_span_lists = torch.zeros(len(cluster_lists), max_in_cluster + 1, entity_spans.shape[-1]).cuda()
-            attention_mask = torch.zeros(ent_span_lists.shape).cuda()
-            attention_mask[:, 0] = 1.
+            #ent_span_lists = torch.zeros(len(cluster_lists), max_in_cluster + 1, entity_spans.shape[-1]).cuda()
+            #attention_mask = torch.zeros(ent_span_lists.shape).cuda()
+            #attention_mask[:, 0] = 1.
+
+            entity_aggr = torch.zeros(batch_size, cluster_num, entity_spans.shape[-1]).cuda()
 
 
-            for i in range(len(cluster_lists)):
-                for j in range(len(cluster_lists[i])):
-                    ent_span_lists[i, j + 1] = entity_spans[0, cluster_lists[i][j]]
-                    attention_mask[i, j + 1] = 1.
+            for b in range(batch_size):
+                for i in range(cluster_num):
+                    entity_spans_cluster = entity_spans[b][cluster_labels[b] == i]
+                    imp_weights = entity_imp[b][cluster_labels[b] == i]
 
-            entity_aggr = self.cluster_aggr_trans(ent_span_lists).view(1, -1, entity_spans.shape[-1])
+                    imp_weights = imp_weights.softmax(0)
+                    entity_aggr[b, i] = torch.sum(torch.mul(entity_spans_cluster, imp_weights),
+                                               dim=0)
+
+                #for j in range(len(cluster_lists[i])):
+                    #ent_span_lists[i, j + 1] = entity_spans[0, cluster_lists[i][j]]
+                    #attention_mask[i, j + 1] = 1.
+
+                #if len(cluster_lists)
+                #ent_span_lists[i, 0] = torch.mean(ent_span_lists[i, 1 : len(cluster_lists[i]) + 1], dim=0)
+
+            #entity_aggr = self.cluster_aggr_trans(ent_span_lists).view(1, -1, entity_spans.shape[-1])"""
+
+
+
+            #entity_aggr = torch_scatter.scatter_mean(entity_spans * entity_weight, cluster_labels, dim=1)
 
             type_pred_cl = self.type_clf(entity_aggr)
 
@@ -596,9 +614,9 @@ class LongIE(nn.Module):
                                         relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
                                     cur_idx += 1
 
-                    relation_cand_pairs = self.rel_compress(relation_cand_pairs)
+                    #relation_cand_pairs = self.rel_compress(relation_cand_pairs)
 
-                    relation_cand_pairs = self.span_pair_transformer(relation_cand_pairs)
+                    #relation_cand_pairs = self.span_pair_transformer(relation_cand_pairs)
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
 
