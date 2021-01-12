@@ -45,7 +45,7 @@ def b_cubed_modified(key, response, true_entity_num, max_pred_ent, not_predicted
         P = 0.0
     else:
         P = math.fsum(
-            len(r.intersection(k)) ** 2 / len(r) for r in response_mod for k in key_precision
+            safe_div(len(r.intersection(k)) ** 2, len(r)) for r in response_mod for k in key_precision
         ) / sum(len(r) for r in response_mod)
 
     response_recall = []
@@ -125,6 +125,7 @@ def score_graphs(gold_graphs, pred_graphs,
     # gold_cluster_matched = gold_cluster_total = pred_cluster_total = 0
     cluster_p = cluster_r = 0
     matched_p = matched_r = 0
+    relation_r = relation_p = 0
 
     for gold_graph, pred_graph in zip(gold_graphs, pred_graphs):
         # Entity
@@ -233,6 +234,15 @@ def score_graphs(gold_graphs, pred_graphs,
                         cur_matched += 1
                         break
 
+        cur_rel_r = cur_matched / len(gold_relations)
+        if len(pred_relations) == 0:
+            cur_rel_p = 0
+        else:
+            cur_rel_p = cur_matched / len(pred_relations)
+
+        relation_r += cur_rel_r
+        relation_p += cur_rel_p
+
         # Trigger
         gold_triggers = gold_graph.triggers
         pred_triggers = pred_graph.triggers
@@ -287,6 +297,10 @@ def score_graphs(gold_graphs, pred_graphs,
     cluster_rec = cluster_r / len(gold_graphs)
     cluster_f = harmonic_mean((cluster_prec, cluster_rec))
 
+    macro_relation_r = relation_r / len(gold_graphs)
+    macro_relation_p = relation_p / len(gold_graphs)
+    macro_relation_f = harmonic_mean((relation_p, relation_r))
+
     matched_p = matched_p / len(gold_graphs)
     matched_r = matched_r / len(gold_graphs)
     matched_f = harmonic_mean((matched_p, matched_r))
@@ -303,6 +317,8 @@ def score_graphs(gold_graphs, pred_graphs,
         trigger_prec * 100.0, trigger_rec * 100.0, trigger_f * 100.0))
     print('Relation: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         relation_prec * 100.0, relation_rec * 100.0, relation_f * 100.0))
+    print('Macro Relation: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+        macro_relation_p * 100.0, macro_relation_r * 100.0, macro_relation_f * 100.0))
     print('Role identification: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         role_id_prec * 100.0, role_id_rec * 100.0, role_id_f * 100.0))
     print('Role: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
@@ -323,6 +339,8 @@ def score_graphs(gold_graphs, pred_graphs,
         'role_id': {'prec': role_id_prec, 'rec': role_id_rec, 'f': role_id_f},
         'relation': {'prec': relation_prec, 'rec': relation_rec,
                      'f': relation_f},
+        'macro_relation': {'prec': macro_relation_p, 'rec': macro_relation_r,
+                     'f': macro_relation_f},
         'entity_clusters': {'prec': cluster_prec, 'rec': cluster_rec, 'f': cluster_f},
         'cluster_matched': {'prec': matched_p, 'rec': matched_r, 'f': matched_f}
     }

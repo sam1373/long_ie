@@ -13,7 +13,7 @@ import transformers
 from data import Batch
 from util import label2onehot, elem_max, get_pairwise_idxs_separate, RegLayer
 
-from span_transformer import SpanTransformer
+from span_transformer import SpanTransformer, AggrTransformer
 
 import torch_scatter
 
@@ -190,7 +190,14 @@ class LongIE(nn.Module):
         self.span_pair_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                      vocabs=vocabs,
                                                      final_pred_embeds=False,
-                                                     num_layers=span_transformer_layers)
+                                                     num_layers=span_transformer_layers,
+                                                     nhead=4,
+                                                     dropout=0.2)
+
+        self.cluster_aggr_trans = AggrTransformer(span_dim=token_initial_dim,
+                                                  num_layers=10,
+                                                  nhead=4,
+                                                  dropout=0.1)
 
 
         self.word_embed = word_embed
@@ -412,8 +419,10 @@ class LongIE(nn.Module):
 
 
 
-        ##try only start tokens
-        #V
+
+        #edge case
+        if is_start_pred.argmax(-1).sum(-1) == 0:
+            is_start_pred[:, 0, 1] = 1000.
 
         if not predict:
 
@@ -450,6 +459,7 @@ class LongIE(nn.Module):
                         if cur_ent >= max_entities:
                             break
 
+
         entity_spans = self.span_transformer(entity_spans)
 
         cluster_labels = None
@@ -473,13 +483,13 @@ class LongIE(nn.Module):
                             fit(coref_embed[b].detach().cpu().numpy())
                         cluster_labels[b] = torch.LongTensor(clustering.labels_).cuda()
 
-                entity_means = torch_scatter.scatter_mean(entity_spans, cluster_labels, dim=1)
+                #entity_means = torch_scatter.scatter_mean(entity_spans, cluster_labels, dim=1)
 
-                entity_aggr_aligned = torch.gather(entity_means, 1,
-                                                 cluster_labels.unsqueeze(-1).
-                                                 expand(-1, -1, entity_means.shape[-1]))
+                #entity_aggr_aligned = torch.gather(entity_means, 1,
+                #                                 cluster_labels.unsqueeze(-1).
+                #                                 expand(-1, -1, entity_means.shape[-1]))
 
-                cluster_num = entity_means.shape[1]
+                cluster_num = cluster_labels.max() + 1
 
             else:
 
@@ -493,24 +503,52 @@ class LongIE(nn.Module):
 
                 noisy_clusters = torch.clone(true_clusters)
 
-                #noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
+                noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
 
-                entity_means = torch_scatter.scatter_mean(entity_spans, noisy_clusters, dim=1)
+                #to not mess up number of clusters
+                noisy_clusters[true_clusters == cluster_num] = cluster_num
 
-                if entity_means.shape[1] < cluster_num:
+                #entity_means = torch_scatter.scatter_mean(entity_spans, noisy_clusters, dim=1)
+
+                """if entity_means.shape[1] < cluster_num:
                     entity_means_pad = torch.zeros(batch_size, cluster_num, entity_means.shape[-1]).cuda()
                     entity_means_pad[:, :entity_means.shape[1]] = entity_means
-                    entity_means = entity_means_pad
+                    entity_means = entity_means_pad"""
 
-                entity_aggr_aligned = torch.gather(entity_means, 1,
-                                                 noisy_clusters.unsqueeze(-1).
-                                                 expand(-1, -1, entity_means.shape[-1]))
+                #entity_aggr_aligned = torch.gather(entity_means, 1,
+                #                                 noisy_clusters.unsqueeze(-1).
+                #                                 expand(-1, -1, entity_means.shape[-1]))
 
                 cluster_labels = noisy_clusters
 
-            type_pred_cl = self.type_clf(entity_means)
+
+            cluster_lists = [[] for i in range(cluster_num)]
 
 
+            for b in range(batch_size):
+                for i in range(cluster_labels.shape[1]):
+                    cluster_lists[cluster_labels[b, i].item()].append(i)
+
+            max_in_cluster = max([len(cl) for cl in cluster_lists])
+
+            #+ 1 for aggregating
+            ent_span_lists = torch.zeros(len(cluster_lists), max_in_cluster + 1, entity_spans.shape[-1]).cuda()
+            attention_mask = torch.zeros(ent_span_lists.shape).cuda()
+            attention_mask[:, 0] = 1.
+
+
+            for i in range(len(cluster_lists)):
+                for j in range(len(cluster_lists[i])):
+                    ent_span_lists[i, j + 1] = entity_spans[0, cluster_lists[i][j]]
+                    attention_mask[i, j + 1] = 1.
+
+            entity_aggr = self.cluster_aggr_trans(ent_span_lists).view(1, -1, entity_spans.shape[-1])
+
+            type_pred_cl = self.type_clf(entity_aggr)
+
+            entity_aggr_aligned = torch.gather(entity_aggr, 1,
+                                               cluster_labels.unsqueeze(-1).
+                                               expand(-1, -1, entity_aggr.shape[-1]))
 
             #print()
             #cluster_num = entity_means.shape[1]
@@ -519,7 +557,7 @@ class LongIE(nn.Module):
 
             if self.config.get("classify_relations"):
                 pair_ids = torch.LongTensor(get_pairwise_idxs(cluster_num, cluster_num)).cuda()
-                entity_pairs = torch.gather(entity_means, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
+                entity_pairs = torch.gather(entity_aggr, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
                                                                                             entity_spans.shape[2]))
                 type_pred_cl = type_pred_cl.argmax(-1)
                 type_pred_cl_embed = self.type_embed(type_pred_cl)

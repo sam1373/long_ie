@@ -11,9 +11,9 @@ import math
 class SpanTransformer(nn.Module):
 
     def __init__(self, span_dim, vocabs, num_layers=3, final_pred_embeds=False,
-                 et_dim=64, tt_dim=64, p_dropout=0.3, single_hid_dim=1024,
+                 et_dim=64, tt_dim=64, single_hid_dim=1024,
                  pair_hid_dim=256, dist_seps=(5, 10, 20, 50, 100), dist_embed_dim=64,
-                 span_dim_small=128, coref_embed_dim=128):
+                 span_dim_small=128, coref_embed_dim=128, dropout=0.1, nhead=8):
 
         super().__init__()
 
@@ -29,7 +29,7 @@ class SpanTransformer(nn.Module):
             #if final_pred_embeds:
             #    input_dim += et_dim + tt_dim
 
-            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=8, dropout=0.1))
+            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=nhead, dropout=dropout))
 
             self.layers.append(trans_layer)
 
@@ -122,3 +122,38 @@ class SpanTransformer(nn.Module):
         return entity_type, trigger_type, None, None"""
 
 
+
+
+class AggrTransformer(nn.Module):
+
+    def __init__(self, span_dim, num_layers=3, nhead=4, dropout=0.2):
+
+        super().__init__()
+
+        self.span_dim = span_dim
+
+        self.aggr_emb = nn.Parameter(torch.zeros(span_dim).cuda())
+
+        self.layers = []
+
+        for i in range(num_layers):
+            input_dim = span_dim
+
+            trans_layer = nn.Sequential(nn.TransformerEncoderLayer(input_dim, nhead=nhead, dropout=dropout))
+
+            self.layers.append(trans_layer)
+
+        self.layers = nn.ModuleList(self.layers)
+
+        #self.lin = nn.Sequential(nn.Linear(input_dim * 3, input_dim), RegLayer(input_dim))
+
+    def forward(self, span_repr):
+
+
+        span_repr[:, 0] = self.aggr_emb
+
+        for l in self.layers:
+
+            span_repr = l(span_repr)
+
+        return span_repr[:, 0]
