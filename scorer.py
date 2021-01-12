@@ -305,7 +305,7 @@ def score_graphs(gold_graphs, pred_graphs,
 
     macro_relation_r = relation_r / len(gold_graphs)
     macro_relation_p = relation_p / len(gold_graphs)
-    macro_relation_f = harmonic_mean((relation_p, relation_r))
+    macro_relation_f = harmonic_mean((macro_relation_r, macro_relation_p))
 
     matched_p = matched_p / len(gold_graphs)
     matched_r = matched_r / len(gold_graphs)
