@@ -234,9 +234,15 @@ def score_graphs(gold_graphs, pred_graphs,
                         cur_matched += 1
                         break
 
-        cur_rel_r = cur_matched / len(gold_relations)
+        if len(gold_relations) == 0:
+            cur_rel_r = 1.
+        else:
+            cur_rel_r = cur_matched / len(gold_relations)
         if len(pred_relations) == 0:
-            cur_rel_p = 0
+            if len(gold_relations) == 0:
+                cur_rel_p = 1.
+            else:
+                cur_rel_p = 0
         else:
             cur_rel_p = cur_matched / len(pred_relations)
 
