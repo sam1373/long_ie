@@ -157,3 +157,4 @@ class AggrTransformer(nn.Module):
             span_repr = l(span_repr)
 
         return span_repr[:, 0]
+

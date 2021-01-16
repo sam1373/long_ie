@@ -98,12 +98,12 @@ if use_extra_word_embed:
 # datasets
 model_name = config.bert_model_name
 
-tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
-                                             cache_dir=config.bert_cache_dir,
-                                             do_lower_case=False)
+#tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
+#                                             cache_dir=config.bert_cache_dir,
+#                                             do_lower_case=False)
 
 
-#tokenizer = BertTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
+tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
 
 
 #tokenizer = AutoTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
@@ -176,11 +176,11 @@ else:
                                         output_hidden_states=True,
                                         fast=True)"""
 
-bert = LongformerModel.from_pretrained(config.bert_model_name)
+#bert = LongformerModel.from_pretrained(config.bert_model_name)
 
 #bert = XLNetModel.from_pretrained("xlnet-base-cased")
 
-#bert = AutoModel.from_pretrained("SpanBERT/spanbert-base-cased")
+bert = AutoModel.from_pretrained("allenai/scibert_scivocab_cased")
 
 bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
@@ -252,7 +252,7 @@ for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0 and not args.debug:
-        if epoch % 5 == 0 and cur_swap_prob < 0.6:
+        if epoch % 5 == 0 and cur_swap_prob < 0.:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
 
@@ -332,7 +332,7 @@ for epoch in range(epoch_num):
 
                     if batch_idx % 150 == 0:# or batch_idx < 10:
                         summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                                  writer, global_step, "train_", vocabs, coref_embeds)
+                                  writer, global_step, "train_", vocabs, None)
 
             print('Train')
             train_scores = score_graphs(gold_train_graphs, pred_train_graphs, False)
@@ -361,7 +361,7 @@ for epoch in range(epoch_num):
 
             if batch_idx % 10 == 0:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                          writer, global_step, "dev_", vocabs, coref_embeds)
+                          writer, global_step, "dev_", vocabs, None)
 
             result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 

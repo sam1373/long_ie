@@ -1029,7 +1029,7 @@ class IEDataset(Dataset):
             int_relation_labels_sep, inst_role_labels_sep = [], []
 
             inst_is_start = [0 for i in range(inst['token_num'])]
-            inst_len_from_here = [0 for i in range(inst['token_num'])]
+            inst_len_from_here = [[0 for j in range(max_entity_len)] for i in range(inst['token_num'])]
             inst_type_from_here = [0 for i in range(inst['token_num'])]
 
             for offset_idx, (start, end) in enumerate(entity_offsets):
@@ -1052,7 +1052,7 @@ class IEDataset(Dataset):
                         # Gold labels to GNN
                         inst_entity_labels_sep.append(inst['entity_labels'][(start, end)])
 
-                        overlaps_longer = False
+                        """overlaps_longer = False
                         for j in range(start + 1, end):
                             if inst_is_start[j]:
                                 if inst_len_from_here[j] > end - start:
@@ -1061,10 +1061,10 @@ class IEDataset(Dataset):
                                     inst_is_start[j] = 0
                                     inst_len_from_here[j] = 0
                                     inst_type_from_here[j] = 0
-                        if not overlaps_longer:
-                            inst_is_start[start] = 1
-                            inst_len_from_here[start] = max(inst_len_from_here[start], end - start)
-                            inst_type_from_here[start] = inst['entity_labels'][(start, end)]
+                        if not overlaps_longer:"""
+                        inst_is_start[start] = 1
+                        inst_len_from_here[start][end - start] = 1
+                        inst_type_from_here[start] = inst['entity_labels'][(start, end)]
 
                     else:
                         inst_neg_entity_idxs.append(offset_idx)

@@ -160,8 +160,10 @@ class LongIE(nn.Module):
 
 
         self.is_start_clf = Linears([token_initial_dim, hidden_dim, 2])
-        self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len])
+        self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len * 2])
         self.type_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['entity'])])
+
+        self.ent_lstm = nn.LSTM(token_initial_dim, token_initial_dim, num_layers=1)
 
         self.relation_any_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, 2])
 
@@ -180,24 +182,28 @@ class LongIE(nn.Module):
 
         #self.span_compress = nn.Linear(span_repr_dim, span_comp_dim)
 
-        self.span_transformer = SpanTransformer(span_dim=token_initial_dim,
+        """self.span_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                 vocabs=vocabs,
                                                 final_pred_embeds=False,
-                                                num_layers=span_transformer_layers)
+                                                num_layers=span_transformer_layers)"""
 
         self.rel_compress = nn.Linear(token_initial_dim * 2 + type_embed_dim * 2, token_initial_dim)
 
-        self.span_pair_transformer = SpanTransformer(span_dim=token_initial_dim,
+        """self.span_pair_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                      vocabs=vocabs,
                                                      final_pred_embeds=False,
                                                      num_layers=span_transformer_layers,
                                                      nhead=4,
-                                                     dropout=0.2)
+                                                     dropout=0.2)"""
 
-        self.cluster_aggr_trans = AggrTransformer(span_dim=token_initial_dim,
+        self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
+                                              num_decoder_layers = 6,
+                                              d_model=token_initial_dim)
+
+        """self.cluster_aggr_trans = AggrTransformer(span_dim=token_initial_dim,
                                                   num_layers=10,
                                                   nhead=4,
-                                                  dropout=0.1)
+                                                  dropout=0.1)"""
 
 
         self.word_embed = word_embed
@@ -211,7 +217,7 @@ class LongIE(nn.Module):
         #event_weights[0] /= 3.
 
         rel_weights = torch.ones(len(vocabs['relation'])).cuda()
-        rel_weights[0] /= 5.
+        #rel_weights[0] /= 10.
 
         role_weights = torch.ones(len(vocabs['role'])).cuda()
         #role_weights[0] /= len(vocabs['role'])
@@ -409,7 +415,7 @@ class LongIE(nn.Module):
         #encoded_starts = self.token_start_enc(encoder_outputs)
 
         is_start_pred = self.is_start_clf(encoder_outputs)
-        len_from_here_pred = self.len_from_here_clf(encoder_outputs)
+        len_from_here_pred = self.len_from_here_clf(encoder_outputs).view(batch_size, is_start_pred.shape[1], -1, 2)
         #type_from_here_pred = self.type_from_here_clf(encoded_starts)
 
         #len_from_here_pred[is_start_pred.argmax(-1) == 0][:, 0] = 10000.
@@ -418,15 +424,11 @@ class LongIE(nn.Module):
         #importance = self.importance_score(encoder_outputs)
 
 
-
-
-        #edge case
-        if is_start_pred.argmax(-1).sum(-1) == 0:
-            is_start_pred[:, 0, 1] = 1000.
-
         if not predict:
 
-            max_entities = batch.is_start.sum(-1).max().item()
+            #max_entities = batch.is_start.sum(-1).max().item()
+
+            max_entities = batch.len_from_here[batch.is_start == 1].sum()
 
             entity_spans = torch.zeros(batch_size, max_entities, encoder_outputs.shape[-1]).cuda()
 
@@ -435,10 +437,27 @@ class LongIE(nn.Module):
                     l, r = batch.pos_entity_offsets[b][i]
                     #importance_weight = importance[b, l:r, 0].softmax(-1)
                     #entity_spans[b, i] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)), dim=0)
-                    entity_spans[b, i] = encoder_outputs[b, l]
+
+                    entity_spans[b, i] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+                    #entity_spans[b, i] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)
+
+                    #encoder_outputs[b, l]
         else:
 
-            max_entities = is_start_pred.argmax(-1).sum(-1).max().item()
+            #max_entities = is_start_pred.argmax(-1).sum(-1).max().item()
+
+            if is_start_pred.argmax(-1).sum() == 0:
+                max_entities = 0
+            else:
+                max_entities = len_from_here_pred[is_start_pred.argmax(-1) == 1].view(-1, 2).argmax(-1).sum()
+
+            if max_entities == 0:
+                is_start_pred[:, 0, 1] = 1000.
+
+                len_from_here_pred[:, 0, :, 1] = -1000.
+                len_from_here_pred[:, 0, 1, 1] = 1000.
+
+                max_entities = 1
 
             entity_spans = torch.zeros(batch_size, max_entities, encoder_outputs.shape[-1]).cuda()
 
@@ -446,21 +465,28 @@ class LongIE(nn.Module):
 
             for b in range(batch_size):
                 for i in range(is_start_pred.shape[1]):
-                    if is_start_pred[b, i].argmax(-1) == 1:
-                        l = i
-                        #r = l + len_from_here_pred[b, i].argmax(-1)
-                        #importance_weight = importance[b, l:r, 0].softmax(-1)
-                        #entity_spans[b, cur_ent] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)),
-                        #                           dim=0)
-                        entity_spans[b, cur_ent] = encoder_outputs[b, l]
+                    for j in range(self.config.max_entity_len):
+                        if is_start_pred[b, i].argmax(-1) == 1 and len_from_here_pred[b, i, j].argmax(-1) == 1:
+                            l = i
+                            r = l + max(1, j)
+                            #r = l + len_from_here_pred[b, i].argmax(-1)
+                            #importance_weight = importance[b, l:r, 0].softmax(-1)
+                            #entity_spans[b, cur_ent] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)),
+                            #                           dim=0)
+                            entity_spans[b, cur_ent] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+                            #hmmm?
 
-                        cur_ent += 1
+                            #entity_spans[b, cur_ent] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)
 
-                        if cur_ent >= max_entities:
-                            break
+                            #entity_spans[b, cur_ent] = encoder_outputs[b, l]
+
+                            cur_ent += 1
+
+                            if cur_ent >= max_entities:
+                                break
 
 
-        entity_spans = self.span_transformer(entity_spans)
+        #entity_spans = self.span_transformer(entity_spans)
 
         cluster_labels = None
 
@@ -546,8 +572,8 @@ class LongIE(nn.Module):
                     imp_weights = entity_imp[b][cluster_labels[b] == i]
 
                     imp_weights = imp_weights.softmax(0)
-                    entity_aggr[b, i] = torch.sum(torch.mul(entity_spans_cluster, imp_weights),
-                                               dim=0)
+                    entity_aggr[b, i] = torch.max(torch.mul(entity_spans_cluster, imp_weights),
+                                               dim=0)[0]
 
                 #for j in range(len(cluster_lists[i])):
                     #ent_span_lists[i, j + 1] = entity_spans[0, cluster_lists[i][j]]
@@ -562,7 +588,8 @@ class LongIE(nn.Module):
 
             #entity_aggr = torch_scatter.scatter_mean(entity_spans * entity_weight, cluster_labels, dim=1)
 
-            type_pred_cl = self.type_clf(entity_aggr)
+            #cluster types pred
+            type_pred = self.type_clf(entity_aggr)
 
             entity_aggr_aligned = torch.gather(entity_aggr, 1,
                                                cluster_labels.unsqueeze(-1).
@@ -577,11 +604,11 @@ class LongIE(nn.Module):
                 pair_ids = torch.LongTensor(get_pairwise_idxs(cluster_num, cluster_num)).cuda()
                 entity_pairs = torch.gather(entity_aggr, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
                                                                                             entity_spans.shape[2]))
-                type_pred_cl = type_pred_cl.argmax(-1)
-                type_pred_cl_embed = self.type_embed(type_pred_cl)
-                entity_type_pairs = torch.gather(type_pred_cl_embed, 1,
+                type_pred = type_pred.argmax(-1)
+                type_pred_embed = self.type_embed(type_pred)
+                entity_type_pairs = torch.gather(type_pred_embed, 1,
                                                  pair_ids.view(1, -1, 1).
-                                                 expand(entity_spans.shape[0], -1, type_pred_cl_embed.shape[2]))
+                                                 expand(entity_spans.shape[0], -1, type_pred_embed.shape[2]))
 
                 entity_pairs = torch.cat((entity_pairs, entity_type_pairs), dim=-1)
 
@@ -591,7 +618,16 @@ class LongIE(nn.Module):
 
                 relation_any = self.relation_any_clf(entity_pairs)
 
+                #relation_any[:, :, 1] = 1000.
+
                 relation_cand = (relation_any.argmax(-1) == 1)
+
+                """if not predict:
+                    #negative relation sampling
+                    relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.9
+                    relation_cand[relation_cand_neg_sample_mask] = 1
+                    #doesn't work because relation_any is unchanged?
+                    #..."""
 
                 total_rel_cand = relation_cand.sum()
 
@@ -618,6 +654,11 @@ class LongIE(nn.Module):
 
                     #relation_cand_pairs = self.span_pair_transformer(relation_cand_pairs)
 
+                    #relation_true_for_cand = batch.relation_labels.view(batch_size, -1)
+
+                    #relation_cand_pairs = self.rel_transformer(encoder_outputs.transpose(0, 1),
+                    #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
+
                     relation_pred = self.relation_clf(relation_cand_pairs)
 
 
@@ -632,7 +673,15 @@ class LongIE(nn.Module):
             if self.config.get("classify_relations"):
                 pair_ids = torch.LongTensor(get_pairwise_idxs(entity_spans.shape[1], entity_spans.shape[1])).cuda()
                 entity_pairs = torch.gather(entity_spans, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1, entity_spans.shape[2]))
-                entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_spans.shape[2] * 2)
+                type_pred = type_pred.argmax(-1)
+                type_pred_embed = self.type_embed(type_pred)
+                entity_type_pairs = torch.gather(type_pred_embed, 1,
+                                                 pair_ids.view(1, -1, 1).
+                                                 expand(entity_spans.shape[0], -1, type_pred_embed.shape[2]))
+
+                entity_pairs = torch.cat((entity_pairs, entity_type_pairs), dim=-1)
+
+                entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_pairs.shape[2] * 2)
                 relation_pred = self.relation_clf(entity_pairs)
             else:
                 relation_pred = None
@@ -663,10 +712,13 @@ class LongIE(nn.Module):
 
         entity_loss_start = self.criteria(is_start.view(-1, 2), batch.is_start.view(-1))
 
-        gold_start_one = (batch.is_start == 1.)
+        #can use this if set 0-len to not count
+        #gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
 
-        entity_loss_len = self.criteria(len_from_here[gold_start_one].view(-1, self.config.max_entity_len),
-                                        batch.len_from_here[gold_start_one].view(-1))
+        gold_one = batch.is_start == 1
+
+        entity_loss_len = self.criteria(len_from_here[gold_one].view(-1, 2),
+                                        batch.len_from_here[gold_one].view(-1))
         entity_loss_type = self.criteria(type_pred.view(-1, len(self.vocabs["entity"])),
                                          batch.entity_labels[batch.entity_labels > 0])
                                          #batch.type_from_here[:].view(-1))
@@ -707,14 +759,20 @@ class LongIE(nn.Module):
             #                               batch.mention_to_ent_coref[:, random_shift]), dim=1)
 
             total_clusters = batch.mention_to_ent_coref.max() + 1
-            random_shift = torch.randint(1, total_clusters, batch.mention_to_ent_coref.shape).cuda()
-            false_clusters = (batch.mention_to_ent_coref + random_shift) % total_clusters
+            if total_clusters > 1:
+                random_shift = torch.randint(1, total_clusters, batch.mention_to_ent_coref.shape).cuda()
+                false_clusters = (batch.mention_to_ent_coref + random_shift) % total_clusters
 
-            coref_false_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
+                coref_false_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
                                                       false_clusters.unsqueeze(-1).expand(-1, -1, coref_true_cluster_means.shape[-1]))
 
+                dist_to_false_cluster_center = torch.clamp(
+                    5 - torch.norm(coref_embeds - coref_false_cluster_aligned, dim=-1), min=0) ** 2
+            else:
+                dist_to_false_cluster_center = torch.Tensor([0]).cuda()
+
             dist_to_true_cluster_center = torch.norm(coref_embeds - coref_true_cluster_aligned, dim=-1)
-            dist_to_false_cluster_center = torch.clamp(5 - torch.norm(coref_embeds - coref_false_cluster_aligned, dim=-1), min=0) ** 2
+            #dist_to_false_cluster_center = torch.clamp(5 - torch.norm(coref_embeds - coref_false_cluster_aligned, dim=-1), min=0) ** 2
 
             #avg_of_clusters = torch.mean(coref_true_cluster_means, dim=-2)
 
@@ -776,7 +834,7 @@ class LongIE(nn.Module):
             print(relation_any.argmax(-1).sum())
             print((batch.relation_labels.view(-1) > 0).long().sum())
 
-            relation_loss = self.criteria(relation_pred.view(-1, relation_pred.shape[-1]),
+            relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
                                           relation_true_for_cand.view(-1))
 
             #relation_loss = self.relation_loss(relation_pred,

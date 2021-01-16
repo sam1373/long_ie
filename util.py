@@ -448,7 +448,7 @@ def build_information_graph(batch,
         cur_ent = 0
 
         is_start_pred_cur = is_start[graph_idx].argmax(-1).tolist()
-        len_from_here_pred_cur = len_from_here[graph_idx].argmax(-1).tolist()
+        len_from_here_pred_cur = len_from_here[graph_idx].view(is_start.shape[1], -1, 2).argmax(-1).tolist()
 
         cur_clusters = cluster_labels[graph_idx]
 
@@ -461,13 +461,15 @@ def build_information_graph(batch,
 
         for j in range(is_start.shape[1]):
             if is_start_pred_cur[j] == 1:
-                start = j
-                end = j + len_from_here_pred_cur[j]
-                #type = type_from_here[graph_idx, j].argmax().item()
-                type = type_pred[graph_idx, cur_ent].argmax().item()
-                cur_ent += 1
-                #if type != 0:
-                entities.append((start, end, entity_itos[type]))
+                for i in range(len(len_from_here_pred_cur[j])):
+                    if len_from_here_pred_cur[j][i]:
+                        start = j
+                        end = j + i
+                        #type = type_from_here[graph_idx, j].argmax().item()
+                        type = type_pred[graph_idx, cur_ent].argmax().item()
+                        cur_ent += 1
+                        #if type != 0:
+                        entities.append((start, end, entity_itos[type]))
 
         entity_num = cur_ent
 
@@ -797,10 +799,12 @@ def summary_graph(pred_graph, true_graph, batch,
                 if pred_graph.coref_matrix[i][j] == 1:
                     coref_entities[j] = min(coref_entities[j], i)
 
-                    pred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
+                    if coref_embeds is not None:
+                        pred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
                                              torch.norm(coref_embeds[i] - coref_embeds[j]).item(), is_actually_coref))
                 else:
-                    notpred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
+                    if coref_embeds is not None:
+                        notpred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
                                              torch.norm(coref_embeds[i] - coref_embeds[j]).item(), is_actually_coref))
 
                 cur_idx += 1
@@ -838,26 +842,30 @@ def summary_graph(pred_graph, true_graph, batch,
 
         writer.add_text(prefix + "pred_coref_text", pred_coref_text, global_step)
 
-        if coref_embeds.shape[-1] != 2 and coref_embeds.shape[1] > 1:
-            coref_embeds = coref_embeds.cpu().numpy()
-            coref_embeds = TSNE(n_components=2).fit_transform(coref_embeds)
+        if coref_embeds is not None:
+            if coref_embeds.shape[-1] != 2 and coref_embeds.shape[0] > 1:
+                coref_embeds = coref_embeds.cpu().numpy()
+                coref_embeds = TSNE(n_components=2).fit_transform(coref_embeds)
 
-        y = coref_embeds[:, 0].tolist()
-        z = coref_embeds[:, 1].tolist()
+            if coref_embeds.shape[0] == 1:
+                coref_embeds = np.array([[0, 0]])
 
-        n = [ent[0] for ent in predicted_entities]
-        c = [all_cols[coref_entities[i] % len(all_cols)] for i in range(entity_num)]
+            y = coref_embeds[:, 0].tolist()
+            z = coref_embeds[:, 1].tolist()
 
-        fig, ax = plt.subplots()
-        ax.scatter(z, y, c=c)
+            n = [ent[0] for ent in predicted_entities]
+            c = [all_cols[coref_entities[i] % len(all_cols)] for i in range(entity_num)]
 
-        for i, txt in enumerate(n):
-            ax.annotate(txt, (z[i], y[i]))
+            fig, ax = plt.subplots()
+            ax.scatter(z, y, c=c)
 
-        fig.canvas.draw()
-        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-        img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-        writer.add_image(prefix + "pred_coref_embeds", img1, global_step, dataformats='HWC')
+            for i, txt in enumerate(n):
+                ax.annotate(txt, (z[i], y[i]))
+
+            fig.canvas.draw()
+            img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+            img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            writer.add_image(prefix + "pred_coref_embeds", img1, global_step, dataformats='HWC')
 
 
     col_list = []
@@ -1098,7 +1106,7 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
 
     #print("|".join([ws_tokenizer.decode(tok) for tok in max_str]))
     """
-    samples = torch.multinomial((logits * 1.2).softmax(dim=-1), num_samples=1, replacement=True).T
+    samples = torch.multinomial((logits * 1.5).softmax(dim=-1), num_samples=1, replacement=True).T
 
     ##print("Samples:")
 
@@ -1128,22 +1136,22 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
 
 class RegLayer(nn.Module):
 
-    def __init__(self, hid_dim, s=0.1, d=0.3):
+    def __init__(self, hid_dim, s=0.1, d=0.5):
         super(RegLayer, self).__init__()
 
-        #self.drop = nn.Dropout(d)
+        self.drop = nn.Dropout(d)
         self.norm = nn.LayerNorm(hid_dim)
         #self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
 
         self.s = s
 
     def forward(self, x):
-        #if self.training:
-        #    r = torch.randn(x.shape).cuda() * self.s
-        #    x = x * (r + 1.)
-        #    del r
+        """if self.training:
+            r = torch.randn(x.shape).cuda() * self.s
+            x = x * (r + 1.)
+            del r"""
 
-        #x = self.drop(x)
+        x = self.drop(x)
 
         # print(x.shape)
         #x = x.transpose(-2, -1)

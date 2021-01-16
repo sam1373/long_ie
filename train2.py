@@ -18,7 +18,7 @@ from transformers import (RobertaConfig,
                           get_linear_schedule_with_warmup)
 
 from data import IEDataset
-from model import OneIEpp, Linears, PairLinears
+from model import LongIE, Linears, PairLinears
 from gnn2 import GraphConv
 from util import generate_vocabs, save_result
 from config import config
@@ -181,15 +181,15 @@ if use_gnn:
                     residual=False)
 else:
     gnn = None
-model = OneIEpp(config,
-                vocabs,
-                bert,
-                entity_classifier=entity_classifier,
-                mention_classifier=mention_classifier,
-                event_classifier=trigger_classifier,
-                relation_classifier=relation_classifier,
-                role_classifier=role_classifier,
-                gnn=gnn)
+model = LongIE(config,
+               vocabs,
+               bert,
+               entity_classifier=entity_classifier,
+               mention_classifier=mention_classifier,
+               event_classifier=trigger_classifier,
+               relation_classifier=relation_classifier,
+               role_classifier=role_classifier,
+               gnn=gnn)
 model.cuda()
 
 # Training parameters

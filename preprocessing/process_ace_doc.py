@@ -1052,6 +1052,7 @@ def convert_to_oneie(input_path: str,
                         'arguments': [
                             {
                                 'entity_id': relation['arg1']['mention_id'],
+                                #fix at some point
                                 #'mention_id': relation['arg1']['mention_id'],
                                 'text': relation['arg1']['text'],
                                 'role_id': relation['arg1']['role']
