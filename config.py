@@ -27,6 +27,9 @@ class Config():
         self.dev_file = kwargs.pop('dev_file', None)
         self.test_file = kwargs.pop('test_file', None)
         self.log_path = kwargs.pop('log_path', None)
+
+        self.use_sent_set = kwargs.pop('use_sent_set', False)
+        self.sent_set_file = kwargs.pop('sent_set_file', None)
         # training
         self.batch_size = kwargs.pop('batch_size', 10)
         self.eval_batch_size = kwargs.pop('eval_batch_size', 1)
