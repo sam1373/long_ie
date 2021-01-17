@@ -681,6 +681,10 @@ class IEDataset(Dataset):
             self.process_entities(sentence)
             self.process_relations(sentence)
             self.process_events(sentence)
+
+            if len(sentence.entities) == 0:
+                print("skipped:", " ".join(sentence.tokens))
+                continue
             # print('After', len(sentence.entities), len(sentence.relations), len(sentence.events))
             # Add the processed sentence
             sentences.append(sentence)
@@ -817,7 +821,7 @@ class IEDataset(Dataset):
     def get_relation_labels_for_clusters(self, relations, mention_to_ent, entity_uids):
         relation_type_level = self.config.get('relation_type_level', 'subtype')
 
-        cluster_num = max(mention_to_ent) + 1
+        cluster_num = max(mention_to_ent, default=0) + 1
 
         labels = [[0] * cluster_num for i in range(cluster_num)]
 

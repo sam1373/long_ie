@@ -1151,7 +1151,7 @@ class RegLayer(nn.Module):
             x = x * (r + 1.)
             del r"""
 
-        x = self.drop(x)
+        #x = self.drop(x)
 
         # print(x.shape)
         #x = x.transpose(-2, -1)
