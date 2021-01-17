@@ -51,6 +51,10 @@ class Config():
 
         self.use_extra_word_embed = kwargs.pop('use_extra_word_embed', False)
 
+        self.use_sent_num_embed = kwargs.pop('use_sent_num_embed', False)
+        self.sent_num_embed_dim = kwargs.pop('sent_num_embed_dim', 128)
+        self.use_sent_context = kwargs.pop('use_sent_context', False)
+
         self.max_sent_len = kwargs.pop("max_sent_len", 2000)
 
         self.classify_entities = kwargs.pop("classify_entities", True)

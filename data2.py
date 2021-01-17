@@ -72,6 +72,7 @@ class Batch:
     is_start: torch.LongTensor
     len_from_here: torch.LongTensor
     type_from_here: torch.LongTensor
+    sent_nums: torch.LongTensor
 
     @property
     def batch_size(self):
@@ -1001,6 +1002,8 @@ class IEDataset(Dataset):
         len_from_here = []
         type_from_here = []
 
+        sent_nums = []
+
         for inst in batch:
             # graphs.append(self.inst2graph(inst))
             graphs.append(inst['graph'])
@@ -1016,6 +1019,14 @@ class IEDataset(Dataset):
             attention_mask.append([1] * inst['piece_num'] + [0] * piece_pad_num)
             token_lens.append(inst['token_lens'])
             pieces_text.append(inst['pieces_text'])
+
+            sent_num = []
+            cur_num = 0
+            for t in inst['tokens']:
+                sent_num.append(cur_num)
+                if t == '.':
+                    cur_num += 1
+            sent_nums.append(sent_num + [0] * (max_token_num - inst['token_num']))
 
             # TODO: check offsets and labels
             # Entity labels
@@ -1219,6 +1230,8 @@ class IEDataset(Dataset):
             is_start = torch.cuda.LongTensor(is_start)
             len_from_here = torch.cuda.LongTensor(len_from_here)
             type_from_here = torch.cuda.LongTensor(type_from_here)
+
+            sent_nums = torch.cuda.LongTensor(sent_nums)
         else:
             pieces = torch.LongTensor(pieces)
             attention_mask = torch.FloatTensor(attention_mask)
@@ -1303,5 +1316,6 @@ class IEDataset(Dataset):
             mention_to_ent_coref=mention_to_ent_coref,
             is_start=is_start,
             len_from_here=len_from_here,
-            type_from_here=type_from_here
+            type_from_here=type_from_here,
+            sent_nums=sent_nums,
         )

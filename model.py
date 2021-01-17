@@ -156,25 +156,35 @@ class LongIE(nn.Module):
         if self.config.get('use_extra_word_embed'):
             token_initial_dim += word_embed_dim
 
+        if self.config.get('use_sent_num_embed'):
+            token_initial_dim += self.config.get('sent_num_embed_dim')
+
+        self.entity_dim = token_initial_dim
+        if self.config.get('use_sent_context'):
+            self.entity_dim *= 2
+
         #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
 
 
         self.is_start_clf = Linears([token_initial_dim, hidden_dim, 2])
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len * 2])
-        self.type_clf = Linears([token_initial_dim, hidden_dim, len(vocabs['entity'])])
+        self.type_clf = Linears([self.entity_dim, hidden_dim, len(vocabs['entity'])])
 
         self.ent_lstm = nn.LSTM(token_initial_dim, token_initial_dim, num_layers=1)
 
-        self.relation_any_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, 2])
+        self.relation_any_clf = Linears([self.entity_dim * 2 + type_embed_dim * 2, hidden_dim, 2])
 
-        self.relation_clf = Linears([token_initial_dim * 2 + type_embed_dim * 2, hidden_dim, len(vocabs['relation'])])
+        self.relation_clf = Linears([self.entity_dim * 2 + type_embed_dim * 2, hidden_dim, len(vocabs['relation'])])
 
-        self.coref_embed = Linears([token_initial_dim, hidden_dim, coref_embed_dim])
+        self.coref_embed = Linears([self.entity_dim, hidden_dim, coref_embed_dim])
 
         self.type_embed = nn.Embedding(len(vocabs['entity']), type_embed_dim)
         #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
 
-        self.entity_importance_weight = Linears([token_initial_dim, hidden_dim, 1])
+        self.entity_importance_weight = Linears([self.entity_dim, hidden_dim, 1])
+
+        #150 just in case
+        self.sent_num_embed = nn.Embedding(150, self.config.get('sent_num_embed_dim'))
 
 
         #self.span_candidate_classifier = Linears([node_dim, 200, 200, 2],
@@ -406,11 +416,18 @@ class LongIE(nn.Module):
 
         batch_size = encoder_outputs.size(0)
 
+        if self.config.get('use_sent_num_embed'):
+            sent_num_embeds = self.sent_num_embed(batch.sent_nums)
+            encoder_outputs = torch.cat((encoder_outputs, sent_num_embeds), dim=-1)
+
         if self.config.get('use_extra_word_embed'):
             word_embed_repr = self.word_embed(batch.token_embed_ids)#.detach()
             #if epoch >= 6:
             #word_embed_repr = word_embed_repr.detach()
             encoder_outputs = torch.cat((encoder_outputs, word_embed_repr), dim=-1)
+
+        if self.config.get('use_sent_context'):
+            sent_context = torch_scatter.scatter_max(encoder_outputs, batch.sent_nums, dim=1)[0]
 
         #encoded_starts = self.token_start_enc(encoder_outputs)
 
@@ -430,7 +447,7 @@ class LongIE(nn.Module):
 
             max_entities = batch.len_from_here[batch.is_start == 1].sum()
 
-            entity_spans = torch.zeros(batch_size, max_entities, encoder_outputs.shape[-1]).cuda()
+            entity_spans = torch.zeros(batch_size, max_entities, self.entity_dim).cuda()
 
             for b in range(batch_size):
                 for i in range(max_entities):
@@ -438,7 +455,13 @@ class LongIE(nn.Module):
                     #importance_weight = importance[b, l:r, 0].softmax(-1)
                     #entity_spans[b, i] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)), dim=0)
 
-                    entity_spans[b, i] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+                    if self.config.get("use_sent_context"):
+                        entity_spans[b, i] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
+                                                        sent_context[b, batch.sent_nums[b, l]]),
+                                                       dim=-1)
+                    else:
+                        entity_spans[b, i] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+
                     #entity_spans[b, i] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)
 
                     #encoder_outputs[b, l]
@@ -459,7 +482,7 @@ class LongIE(nn.Module):
 
                 max_entities = 1
 
-            entity_spans = torch.zeros(batch_size, max_entities, encoder_outputs.shape[-1]).cuda()
+            entity_spans = torch.zeros(batch_size, max_entities, self.entity_dim).cuda()
 
             cur_ent = 0
 
@@ -473,7 +496,13 @@ class LongIE(nn.Module):
                             #importance_weight = importance[b, l:r, 0].softmax(-1)
                             #entity_spans[b, cur_ent] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)),
                             #                           dim=0)
-                            entity_spans[b, cur_ent] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+                            #entity_spans[b, cur_ent] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+                            if self.config.get("use_sent_context"):
+                                entity_spans[b, cur_ent] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
+                                                                sent_context[b, batch.sent_nums[b, l]]),
+                                                               dim=-1)
+                            else:
+                                entity_spans[b, cur_ent] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
                             #hmmm?
 
                             #entity_spans[b, cur_ent] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)

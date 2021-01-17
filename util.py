@@ -568,13 +568,13 @@ def align_pred_to_gold(true_entities, pred_entities):
     rev_true = defaultdict(lambda: -1)
 
     for i, (s, e, t) in enumerate(true_entities):
-        rev_true[(s, e, t)] = i
+        rev_true[(s, e)] = i
 
     alignment = []
     total_al_ent = len(true_entities)
 
     for i, (s, e, t) in enumerate(pred_entities):
-        aligned_to = rev_true[(s, e, t)]
+        aligned_to = rev_true[(s, e)]
         if aligned_to == -1:
             aligned_to = total_al_ent
             total_al_ent += 1
