@@ -98,12 +98,12 @@ if use_extra_word_embed:
 # datasets
 model_name = config.bert_model_name
 
-tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
-                                             cache_dir=config.bert_cache_dir,
-                                             do_lower_case=False)
+#tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
+#                                             cache_dir=config.bert_cache_dir,
+#                                             do_lower_case=False)
 
 
-#tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
+tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
 
 
 #tokenizer = AutoTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
@@ -114,6 +114,10 @@ tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
 wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-generator')
 wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True).cuda()
 
+#ace+
+sent_lens = [0, 200, 500, 1000, 3000]
+#scierc
+sent_lens = [0, 100, 200, 300, 500]
 
 if args.debug:
     train_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
@@ -124,18 +128,27 @@ if args.debug:
 else:
     train_set = IEDataset(config.file_dir + config.train_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
     dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
-    test_set = IEDataset(config.file_dir + config.test_file, config, word_vocab)
+    if config.get("split_by_doc_lens"):
+        test_sets = []
+        for i in range(1, len(sent_lens)):
+            max_len = sent_lens[i]
+            min_len = sent_lens[i - 1]
+            test_sets.append(IEDataset(config.file_dir + config.test_file, config, word_vocab,
+                                       min_sent_len=min_len, max_sent_len=max_len))
+    else:
+        test_sets = [IEDataset(config.file_dir + config.test_file, config, word_vocab)]
     if config.get("use_sent_set"):
         test_sent_set = IEDataset(config.file_dir + config.sent_set_file, config, word_vocab)
 
 cur_swap_prob = 0.
 
 print('Processing data')
-train_set.process(tokenizer, max_sent_len, cur_swap_prob)
-dev_set.process(tokenizer, max_sent_len)
-test_set.process(tokenizer, max_sent_len)
+train_set.process(tokenizer, cur_swap_prob)
+dev_set.process(tokenizer)
+for test_set in test_sets:
+    test_set.process(tokenizer)
 if config.get("use_sent_set"):
-    test_sent_set.process(tokenizer, max_sent_len)
+    test_sent_set.process(tokenizer)
 """print(train_set.data[5].sentences)
 
 for i in range(10):
@@ -144,18 +157,23 @@ for i in range(10):
 
 input()"""
 
+all_sets = [train_set, dev_set, *test_sets]
+
 if config.get("use_sent_set"):
-    vocabs = generate_vocabs([train_set, dev_set, test_set, test_sent_set])
-else:
-    vocabs = generate_vocabs([train_set, dev_set, test_set])
+    all_sets.append(test_sent_set)
+
+vocabs = generate_vocabs(all_sets)
 
 if skip_train == False:
     train_set.tensorize(vocabs, config)
 dev_set.tensorize(vocabs, config)
-test_set.tensorize(vocabs, config)
+for test_set in test_sets:
+    test_set.tensorize(vocabs, config)
 if config.get("use_sent_set"):
     test_sent_set.tensorize(vocabs, config)
 # valid_patterns = load_valid_patterns(config.valid_pattern_path, vocabs)
+
+input()
 
 if skip_train == False:
     batch_num = len(train_set) // config.batch_size
@@ -186,11 +204,11 @@ else:
                                         output_hidden_states=True,
                                         fast=True)"""
 
-bert = LongformerModel.from_pretrained(config.bert_model_name)
+#bert = LongformerModel.from_pretrained(config.bert_model_name)
 
 #bert = XLNetModel.from_pretrained("xlnet-base-cased")
 
-#bert = AutoModel.from_pretrained("allenai/scibert_scivocab_cased")
+bert = AutoModel.from_pretrained("allenai/scibert_scivocab_cased")
 
 bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
@@ -414,43 +432,46 @@ for epoch in range(epoch_num):
             best_dev_score = dev_scores[score_to_use]['f']
 
     if epoch % 5 == 0 and do_test and not args.debug:
-        # Test
-        test_loader = DataLoader(test_set,
-                                 batch_size,
-                                 shuffle=False,
-                                 collate_fn=test_set.collate_fn)
-        gold_test_graphs, pred_test_graphs, pred_test_gold_input_graphs = [], [], []
-        test_sent_ids, test_tokens = [], []
-        for batch in tqdm(test_loader, ncols=75):
-            result = model.predict(batch)
+        for ts_idx, test_set in enumerate(test_sets):
+            if len(test_set) == 0:
+                continue
+            # Test
+            test_loader = DataLoader(test_set,
+                                     batch_size,
+                                     shuffle=False,
+                                     collate_fn=test_set.collate_fn)
+            gold_test_graphs, pred_test_graphs, pred_test_gold_input_graphs = [], [], []
+            test_sent_ids, test_tokens = [], []
+            for batch in tqdm(test_loader, ncols=75):
+                result = model.predict(batch)
 
-            pred_graphs = build_information_graph(batch, *result, vocabs)
+                pred_graphs = build_information_graph(batch, *result, vocabs)
 
-            #if batch_idx % 10 == 0:
-            #    summary_graph(pred_graphs[0], batch.graphs[0], batch,
-            #              writer, global_step, "test_", vocabs, None)
+                #if batch_idx % 10 == 0:
+                #    summary_graph(pred_graphs[0], batch.graphs[0], batch,
+                #              writer, global_step, "test_", vocabs, None)
 
-            result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
+                result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
-            pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs, gold_inputs=True)
+                pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs, gold_inputs=True)
 
-            pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
+                pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
 
-            pred_test_graphs.extend(pred_graphs)
-            gold_test_graphs.extend(batch.graphs)
-            test_sent_ids.extend(batch.sent_ids)
-            test_tokens.extend(batch.tokens)
+                pred_test_graphs.extend(pred_graphs)
+                gold_test_graphs.extend(batch.graphs)
+                test_sent_ids.extend(batch.sent_ids)
+                test_tokens.extend(batch.tokens)
 
-        print('Test')
-        test_scores = score_graphs(gold_test_graphs, pred_test_graphs, False)
-        print('Test Gold Inputs')
-        test_g_i_scores = score_graphs(gold_test_graphs, pred_test_gold_input_graphs, False, gold_inputs=True)
+            print('Test Set', ts_idx)
+            test_scores = score_graphs(gold_test_graphs, pred_test_graphs, False)
+            print('Test', ts_idx, 'Gold Inputs')
+            test_g_i_scores = score_graphs(gold_test_graphs, pred_test_gold_input_graphs, False, gold_inputs=True)
 
-        for k, v in test_scores.items():
-            writer.add_scalar('test_' + k + '_f', v['f'], global_step)
+            for k, v in test_scores.items():
+                writer.add_scalar('test_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
 
-        for k, v in test_g_i_scores.items():
-            writer.add_scalar('test_gi_' + k + '_f', v['f'], global_step)
+            for k, v in test_g_i_scores.items():
+                writer.add_scalar('test_gi_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
 
     if epoch % 5 == 0 and config.get("use_sent_set"):
 

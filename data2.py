@@ -418,7 +418,9 @@ class IEDataset(Dataset):
                  config: Dict[str, Any],
                  word_vocab=None,
                  ws_tokenizer=None,
-                 ws_model=None):
+                 ws_model=None,
+                 max_sent_len=None,
+                 min_sent_len=0):
         self.path = path
         self.config = config
         self.orig_data = []
@@ -430,6 +432,13 @@ class IEDataset(Dataset):
 
         self.ws_tokenizer = ws_tokenizer
         self.ws_model = ws_model
+
+        self.min_sent_len = min_sent_len
+        #default to config
+        if max_sent_len is None:
+            self.max_sent_len = self.config.get("max_sent_len")
+        else:
+            self.max_sent_len = max_sent_len
 
         self.load(path)
 
@@ -574,10 +583,13 @@ class IEDataset(Dataset):
 
     def process_entities(self,
                          sentence: Sentence,
+                         remove_pro: bool = False,
                          remove_fillers: bool = True):
         entities = sentence.entities
         processed_entities = []
         for entity in entities:
+            if remove_pro and entity.mention_type == 'PRO':
+                continue
             if remove_fillers and entity.mention_type == 'FILLER':
                 # Skip fillers
                 continue
@@ -613,6 +625,7 @@ class IEDataset(Dataset):
                        sentence,
                        tokenizer: PreTrainedTokenizer,
                        max_sent_len: int = 128,
+                       min_sent_len: int = 0,
                        swap_prob=0.05):
         tokens = sentence.tokens
         if self.ws_model is not None and swap_prob > 0:
@@ -645,8 +658,8 @@ class IEDataset(Dataset):
         #pieces = [tokenizer.tokenize(" " * (i > 0 and not (token in [".", ","])) + token) for i, token in enumerate(tokens)]
         token_lens = [len(p) for p in pieces]
         # Remove overlength sentences
-        if sum(token_lens) > max_sent_len:
-            print("skipped due to length:", sum(token_lens))
+        if sum(token_lens) > max_sent_len or sum(token_lens) < min_sent_len:
+            #print("skipped due to length:", sum(token_lens))
             return False
         # Todo: automatically remove 0-len tokens
         assert all(l > 0 for l in token_lens)
@@ -670,15 +683,16 @@ class IEDataset(Dataset):
                     doc: Document,
                     tokenizer: PreTrainedTokenizer,
                     max_sent_len: int = 128,
+                    min_sent_len: int = 0,
                     swap_prob = 0.05):
         # Convert tokens to wordpieces
         sentences = []
         for sentence in doc.sentences:
-            keep_sent = self.process_tokens(sentence, tokenizer, max_sent_len, swap_prob)
+            keep_sent = self.process_tokens(sentence, tokenizer, max_sent_len=max_sent_len, min_sent_len=min_sent_len, swap_prob=swap_prob)
             if not keep_sent:
                 continue
             # print('Before', len(sentence.entities), len(sentence.relations), len(sentence.events))
-            self.process_entities(sentence)
+            self.process_entities(sentence, remove_pro=self.config.get("remove_pro"))
             self.process_relations(sentence)
             self.process_events(sentence)
 
@@ -692,13 +706,15 @@ class IEDataset(Dataset):
 
     def process(self,
                 tokenizer: PreTrainedTokenizer,
-                max_sent_len: int = 128,
                 swap_prob = 0):
+
+
+        print("number of samples in dataset:", len(self.data))
 
         for doc_id, _ in enumerate(tqdm(self.data)):
             #print("processing doc", doc_id + 1, "out of", len(self.data))
             self.data[doc_id] = copy.deepcopy(self.orig_data[doc_id])
-            self.process_doc(self.data[doc_id], tokenizer, max_sent_len, swap_prob)
+            self.process_doc(self.data[doc_id], tokenizer, max_sent_len=self.max_sent_len, min_sent_len=self.min_sent_len, swap_prob=swap_prob)
 
     def tensorize_pieces(self, doc: Document, gpu: bool = True):
         all_pieces = [sent.piece_idxs for sent in doc.sentences]
@@ -817,6 +833,8 @@ class IEDataset(Dataset):
                                                         config.get('max_entity_len', 10),
                                                         config.get('max_trigger_len', 2))
                                 for sent in doc.sentences)
+
+        print("number of processed samples:", len(self.tensors))
 
     def get_relation_labels_for_clusters(self, relations, mention_to_ent, entity_uids):
         relation_type_level = self.config.get('relation_type_level', 'subtype')
