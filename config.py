@@ -27,6 +27,7 @@ class Config():
         self.dev_file = kwargs.pop('dev_file', None)
         self.test_file = kwargs.pop('test_file', None)
         self.log_path = kwargs.pop('log_path', None)
+        self.split_by_doc_lens = kwargs.pop('split_by_doc_lens', False)
 
         self.use_sent_set = kwargs.pop('use_sent_set', False)
         self.sent_set_file = kwargs.pop('sent_set_file', None)
@@ -41,6 +42,8 @@ class Config():
         self.warmup_epoch = kwargs.pop('warmup_epoch', 5)
         self.grad_clipping = kwargs.pop('grad_clipping', 5.0)
         # others
+        self.remove_pro = kwargs.pop('remove_pro', False)
+
         self.use_gpu = kwargs.pop('use_gpu', True)
         self.gpu_device = kwargs.pop('gpu_device', -1)
 
