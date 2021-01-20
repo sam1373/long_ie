@@ -589,7 +589,7 @@ import matplotlib.colors as mcolors
 from sklearn.manifold import TSNE
 
 def summary_graph(pred_graph, true_graph, batch,
-                  writer, global_step, prefix, vocabs, coref_embeds=None):
+                  writer, global_step, prefix, vocabs, coref_embeds=None, id=None):
 
 
     if coref_embeds is not None:
@@ -1000,6 +1000,12 @@ def summary_graph(pred_graph, true_graph, batch,
     writer.add_text(prefix + "rels_predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix + "rels_not_predicted", " ".join(str(not_predicted)), global_step)"""
 
+    draw_network(true_entities, true_clusters, true_graph.relations,
+                 writer, prefix + "true", global_step, id)
+
+    draw_network(predicted_entities, pred_clusters, pred_graph.relations,
+                 writer, prefix + "pred", global_step, id)
+
     plt.close('all')
 
 
@@ -1160,3 +1166,43 @@ class RegLayer(nn.Module):
         #x = x.transpose(-2, -1)
 
         return x
+
+import networkx as nx
+
+def draw_network(entities, clusters, relations, writer, prefix, global_step, id):
+
+    ents = []
+
+    for cl_id, cl in enumerate(clusters):
+        cur_ent = []
+        for i in cl:
+            cur_ent.append(entities[i][0].replace("|", " "))
+        ents.append((",".join(list(set(cur_ent))), {"col": cl_id, "size": len(cur_ent)}))
+
+    rels = []
+
+    for a, b, t in relations:
+        rels.append((ents[a][0], ents[b][0], {"label": t}))
+
+    G = nx.Graph()
+
+    G.add_nodes_from(ents)
+
+    G.add_edges_from(rels)
+
+    fig, ax = plt.subplots()
+    plt.tight_layout()
+    plt.axis('off')
+
+
+    nx.draw(G, node_size=50)
+
+    fig.canvas.draw()
+
+    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    writer.add_image(prefix, img1, global_step, dataformats='HWC')
+
+
+    nx.write_gexf(G, "output/" + prefix + "_" + str(id) + ".gexf")
