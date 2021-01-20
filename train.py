@@ -98,12 +98,12 @@ if use_extra_word_embed:
 # datasets
 model_name = config.bert_model_name
 
-#tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
-#                                             cache_dir=config.bert_cache_dir,
-#                                             do_lower_case=False)
+tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
+                                             cache_dir=config.bert_cache_dir,
+                                             do_lower_case=False)
 
 
-tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
+#tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
 
 
 #tokenizer = AutoTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
@@ -115,14 +115,14 @@ wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-gene
 wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True).cuda()
 
 #ace+
-sent_lens = [0, 200, 500, 1000, 3000]
+sent_lens = [0, 300, 500, 1000, 3000]
 #scierc
-sent_lens = [0, 100, 200, 300, 500]
+#sent_lens = [0, 100, 200, 300, 500]
 
 if args.debug:
     train_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
     dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
-    test_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
+    test_sets = [IEDataset(config.file_dir + config.dev_file, config, word_vocab)]
     if config.get("use_sent_set"):
         test_sent_set = IEDataset(config.file_dir + config.sent_set_file, config, word_vocab)
 else:
@@ -173,7 +173,6 @@ if config.get("use_sent_set"):
     test_sent_set.tensorize(vocabs, config)
 # valid_patterns = load_valid_patterns(config.valid_pattern_path, vocabs)
 
-input()
 
 if skip_train == False:
     batch_num = len(train_set) // config.batch_size
@@ -204,11 +203,11 @@ else:
                                         output_hidden_states=True,
                                         fast=True)"""
 
-#bert = LongformerModel.from_pretrained(config.bert_model_name)
+bert = LongformerModel.from_pretrained(config.bert_model_name)
 
 #bert = XLNetModel.from_pretrained("xlnet-base-cased")
 
-bert = AutoModel.from_pretrained("allenai/scibert_scivocab_cased")
+#bert = AutoModel.from_pretrained("allenai/scibert_scivocab_cased")
 
 bert_dim = bert.config.hidden_size
 if config.get('use_extra_bert', False):
@@ -286,7 +285,7 @@ for epoch in range(epoch_num):
 
         if cur_swap_prob > 0:
             print("reprocessing train dataset")
-            train_set.process(tokenizer, max_sent_len, cur_swap_prob)
+            train_set.process(tokenizer, cur_swap_prob)
 
     if skip_train == False:
         dataloader = DataLoader(train_set,
@@ -360,7 +359,7 @@ for epoch in range(epoch_num):
 
                     if batch_idx % 150 == 0:# or batch_idx < 10:
                         summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                                  writer, global_step, "train_", vocabs, None)
+                                  writer, global_step, "train_", vocabs, None, id=batch_idx)
 
             print('Train')
             train_scores = score_graphs(gold_train_graphs, pred_train_graphs, False)
@@ -387,9 +386,9 @@ for epoch in range(epoch_num):
 
             pred_graphs = build_information_graph(batch, *result, vocabs)
 
-            if batch_idx % 10 == 0:
+            if len(batch.tokens[0]) < 600:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                          writer, global_step, "dev_", vocabs, None)
+                          writer, global_step, "dev_", vocabs, None, id=batch_idx)
 
             result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
