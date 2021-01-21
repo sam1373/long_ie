@@ -821,7 +821,7 @@ def summary_graph(pred_graph, true_graph, batch,
         for i in range(entity_num):
             if coref_entities[i] not in coref_dict:
                 coref_dict[coref_entities[i]] = len(coref_dict)
-                pred_clusters.append([])
+                #pred_clusters.append([])
             coref_entities[i] = coref_dict[coref_entities[i]]
             #pred_clusters[coref_entities[i]].append(i)
 
@@ -1177,7 +1177,7 @@ def draw_network(entities, clusters, relations, writer, prefix, global_step, id)
         cur_ent = []
         for i in cl:
             cur_ent.append(entities[i][0].replace("|", " "))
-        ents.append((",".join(list(set(cur_ent))), {"col": cl_id, "size": len(cur_ent)}))
+        ents.append((",".join(list(set(cur_ent))), {"col": cl_id, "size": len(cur_ent), "type": entities[cl[0]][1]}))
 
     rels = []
 
@@ -1202,7 +1202,7 @@ def draw_network(entities, clusters, relations, writer, prefix, global_step, id)
     img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
     img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-    writer.add_image(prefix, img1, global_step, dataformats='HWC')
+    writer.add_image(prefix + "_graph", img1, global_step, dataformats='HWC')
 
 
     nx.write_gexf(G, "output/" + prefix + "_" + str(id) + ".gexf")
