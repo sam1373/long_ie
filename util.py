@@ -398,6 +398,7 @@ def build_information_graph(batch,
                             type_pred,
                             cluster_labels,
                             relation_any,
+                            relation_cand,
                             relation_true_for_cand,
                             coref_embeds,
                             relation_pred,
@@ -479,6 +480,8 @@ def build_information_graph(batch,
         if relation_pred is not None:
             cluster_num = cur_clusters.max() + 1
 
+            #rel_cand = relation_cand[graph_idx].view(cluster_num, cluster_num)
+
             rel_matrix_nonzero = relation_any[graph_idx].view(cluster_num, cluster_num, -1)
             cur_idx = 0
 
@@ -486,27 +489,35 @@ def build_information_graph(batch,
 
             nonzero_final_probs = []
 
-            if not(rel_matrix_nonzero.argmax(-1).sum() > 200 or rel_matrix_nonzero.argmax(-1).sum() == 0):
+            #if not(rel_matrix_nonzero.argmax(-1).sum() > 200 or rel_matrix_nonzero.argmax(-1).sum() == 0):
 
-                for i in range(cluster_num):
-                    for j in range(cluster_num):
+            #all_cand_rels = []
 
-                        if i == j:
-                            continue
+            for i in range(cluster_num):
+                for j in range(cluster_num):
 
-                        if symmetric_rel and i > j:
-                            continue
+                    if i == j:
+                        continue
 
-                        if rel_matrix_nonzero[i, j].argmax(-1) == 1:
+                    if symmetric_rel and i > j:
+                        continue
+
+                    any_probs = rel_matrix_nonzero[i, j]
+
+                    if rel_matrix_nonzero[i, j].argmax(-1) == 1:
 
 
-                            rel_pred = relation_pred[graph_idx, cur_idx].argmax().item()
+                        rel_pred = relation_pred[graph_idx, cur_idx].argmax().item()
 
-                            if rel_pred > 0:
-                                relations.append((i, j, relation_itos[rel_pred]))
-                                nonzero_final_probs.append(relation_pred[graph_idx, cur_idx])
+                        if rel_pred > 0:
+                            relations.append((i, j, relation_itos[rel_pred]))
+                            nonzero_final_probs.append(relation_pred[graph_idx, cur_idx])
 
-                            cur_idx += 1
+                        cur_idx += 1
+
+                    #if rel_cand[i, j]:
+
+
 
         cur_graph = Graph(entities, [], relations, [], coref_matrix, cluster_labels[graph_idx].tolist())
 
@@ -1061,6 +1072,9 @@ def elem_max(t1, t2):
     combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
     return torch.max(combined, dim=-1)[0].squeeze(-1)
 
+def elem_min(t1, t2):
+    combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
+    return torch.min(combined, dim=-1)[0].squeeze(-1)
 
 def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagonal: bool = False):
     idxs1, idxs2 = [], []

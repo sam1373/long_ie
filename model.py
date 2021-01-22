@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 import transformers
 from data import Batch
-from util import label2onehot, elem_max, get_pairwise_idxs_separate, RegLayer
+from util import label2onehot, elem_max, elem_min, get_pairwise_idxs_separate, RegLayer
 
 from span_transformer import SpanTransformer, AggrTransformer
 
@@ -466,8 +466,8 @@ class LongIE(nn.Module):
     def forward_nn(self, batch: Batch, predict: bool = False, epoch=0):
         # Run the encoder to get contextualized word representations
 
-        print(batch.graphs[0].entities)
-        print(batch.pos_entity_offsets)
+        #print(batch.graphs[0].entities)
+        #print(batch.pos_entity_offsets)
 
         #print(batch.tokens)
 
@@ -478,6 +478,8 @@ class LongIE(nn.Module):
         encoder_outputs = self.encode_bert(batch.pieces,
                                            attention_mask=batch.attention_mask,
                                            token_lens=batch.token_lens)
+
+
         #encoder_outputs = torch.zeros(batch.token_embed_ids.shape[:2] + (self.encoder.config.hidden_size,)).cuda()
 
         batch_size = encoder_outputs.size(0)
@@ -735,7 +737,16 @@ class LongIE(nn.Module):
 
                 #relation_any[:, :, 1] = 1000.
 
-                relation_cand = (relation_any.argmax(-1) == 1)
+                #relation_cand = (relation_any.argmax(-1) == 1)
+
+
+
+                if not predict:
+                    relation_cand = elem_max((relation_any.argmax(-1) == 1),
+                                         (batch.relation_labels.view(batch_size, -1) > 0))
+                else:
+                    relation_cand = (batch.relation_labels.view(batch_size, -1) > 0)
+
 
                 """if not predict:
                     #negative relation sampling
@@ -746,20 +757,28 @@ class LongIE(nn.Module):
 
                 total_rel_cand = relation_cand.sum()
 
-                if total_rel_cand > 200 or total_rel_cand == 0:
-                    relation_pred = torch.zeros(batch_size, 1, len(self.vocabs['relation'])).cuda()
-                    relation_true_for_cand = torch.zeros(batch_size, 1).cuda().long()
 
-                else:
+                if total_rel_cand > 500:
+                    if predict:
+                        relation_pred = torch.zeros(batch_size, 1, len(self.vocabs['relation'])).cuda()
+                        relation_true_for_cand = torch.zeros(batch_size, 1).cuda().long()
+                    if not predict:
+                        relation_cand = (batch.relation_labels.view(batch_size, -1) > 0)
+                        total_rel_cand = relation_cand.sum()
+
+
+                if not (predict and total_rel_cand > 500):
                     relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs.shape[-1]).cuda()
                     if not predict:
                         relation_true_for_cand = torch.zeros(batch_size, total_rel_cand).cuda().long()
                     cur_idx = 0
                     for b in range(batch_size):
                         for i in range(cluster_num):
-                            for j in range(i + 1, cluster_num):
+                            for j in range(cluster_num):
                                 pair_idx = i * cluster_num + j
-                                if relation_any.argmax(-1)[b, pair_idx] == 1:
+                                if i == j:
+                                    continue
+                                if relation_cand[b, pair_idx]:#relation_any.argmax(-1)[b, pair_idx] == 1:
                                     relation_cand_pairs[b, cur_idx] = entity_pairs[b, pair_idx]
                                     if not predict:
                                         relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
@@ -801,13 +820,14 @@ class LongIE(nn.Module):
             else:
                 relation_pred = None
 
-        return is_start_pred, len_from_here_pred, type_pred, cluster_labels, relation_any, relation_true_for_cand, coref_embed, relation_pred
+        return is_start_pred, len_from_here_pred, type_pred, cluster_labels,\
+               relation_any, relation_cand, relation_true_for_cand, coref_embed, relation_pred
 
 
 
     def forward(self, batch: Batch, last_only: bool = True, epoch=0):
         is_start, len_from_here, type_pred, cluster_labels,\
-        relation_any, relation_true_for_cand,\
+        relation_any, relation_cand, relation_true_for_cand,\
         coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
 
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
@@ -950,6 +970,12 @@ class LongIE(nn.Module):
             print("first pass:", relation_any.argmax(-1).sum())
             print("second pass:", (relation_pred.argmax(-1) > 0).long().sum())
             print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
+            print("rels in candidates", (relation_true_for_cand.view(-1) > 0).long().sum())
+
+            relation_any_cont_gold = elem_min(relation_any.argmax(-1).view(-1),
+                                              (batch.relation_labels.view(-1) > 0).long())
+
+            print("intersect:", relation_any_cont_gold.sum())
 
             relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
                                           relation_true_for_cand.view(-1))
