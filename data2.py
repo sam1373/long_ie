@@ -763,7 +763,7 @@ class IEDataset(Dataset):
         instance['piece_num'] = len(sentence.piece_idxs)
         # Filter entities
         entities = [entity for entity in sentence.entities
-                    if (entity.end - entity.start) <= max_entity_len]
+                    if (entity.end - entity.start) <= max_entity_len - 1]
         sentence.update_entities(entities)
         # Filter relations
         relations = []
@@ -836,7 +836,7 @@ class IEDataset(Dataset):
 
         print("number of processed samples:", len(self.tensors))
 
-    def get_relation_labels_for_clusters(self, relations, mention_to_ent, entity_uids):
+    def get_relation_labels_for_clusters(self, relations, mention_to_ent, mention_id_dict):
         relation_type_level = self.config.get('relation_type_level', 'subtype')
 
         cluster_num = max(mention_to_ent, default=0) + 1
@@ -848,18 +848,21 @@ class IEDataset(Dataset):
         for rel_id, relation in enumerate(relations):
             relation_type = relation.relation_type_idx
             relation_type_rev = relation.relation_type_idx_rev
-            arg1 = relation.arg1.uid
-            arg2 = relation.arg2.uid
+            #arg1 = relation.arg1.uid
+            #arg2 = relation.arg2.uid
+            arg1 = mention_id_dict[relation.arg1.mention_id]
+            arg2 = mention_id_dict[relation.arg2.mention_id]
             if arg1 == arg2:
                 continue
-            i = entity_uids.index(arg1)
-            j = entity_uids.index(arg2)
-            c_i = mention_to_ent[i]
-            c_j = mention_to_ent[j]
+            c_i = mention_to_ent[arg1]
+            c_j = mention_to_ent[arg2]
 
-            labels[c_i][c_j] = labels[c_j][c_i] = relation_type
+            if self.config.get("symmetric_relations"):
+                labels[c_i][c_j] = labels[c_j][c_i] = relation_type
+            else:
+                labels[c_i][c_j] = relation_type
 
-            if c_i > c_j:
+            if self.config.get("symmetric_relations") and c_i > c_j:
                 c_i, c_j = c_j, c_i
 
             relations_cl_set.add((c_i, c_j, relation.get_type(relation_type_level)))
@@ -1153,8 +1156,12 @@ class IEDataset(Dataset):
             inst_mention_to_ent_coref = []
 
             inst_coref_labels = [[0] * (entity_num) for i in range(entity_num)]
+
+            mention_id_dict = dict()
+
             for a in range(entity_num):
                 cur_ent = inst['entities'][a].entity_id
+                mention_id_dict[inst['entities'][a].mention_id] = a
                 if cur_ent not in inst_entities_coref:
                     inst_entities_coref[cur_ent] = len(inst_entities_coref)
                 inst_mention_to_ent_coref.append(inst_entities_coref[cur_ent])
@@ -1176,7 +1183,7 @@ class IEDataset(Dataset):
 
             inst_relation_labels_cl, relations_cl = self.get_relation_labels_for_clusters(inst['relations'],
                                                                           inst_mention_to_ent_coref,
-                                                                          inst_pos_entity_uids)
+                                                                          mention_id_dict)
 
             inst['graph'].relations = relations_cl
 

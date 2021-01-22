@@ -42,6 +42,8 @@ class Config():
         self.warmup_epoch = kwargs.pop('warmup_epoch', 5)
         self.grad_clipping = kwargs.pop('grad_clipping', 5.0)
         # others
+        self.symmetric_relations = kwargs.pop('symmetric_relations', True)
+
         self.remove_pro = kwargs.pop('remove_pro', False)
 
         self.use_gpu = kwargs.pop('use_gpu', True)

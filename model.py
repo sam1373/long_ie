@@ -130,6 +130,47 @@ class PairLinears(nn.Module):
         h = self.dropout(self.func(h))
         return self.output_linear(h)
 
+class ResidLinear(nn.Module):
+    """Multiple linear layers with Dropout."""
+
+    def __init__(self,
+                 in_dim,
+                 out_dim: int = 2,
+                 n_resid_layers: int = 1,
+                 have_final: bool = True,
+                 bias: bool = True):
+        super().__init__()
+        self.layers = nn.ModuleList([nn.Sequential(nn.Linear(in_dim, in_dim, bias=bias),
+                                                   nn.LayerNorm(in_dim))
+                                     for i in range(n_resid_layers)])
+        self.activation = nn.LeakyReLU()
+
+        self.norm = nn.ModuleList([nn.LayerNorm(in_dim)
+                                   for i in range(n_resid_layers)])
+
+        if have_final:
+            self.final_lin = nn.Linear(in_dim, out_dim)
+
+        self.have_final = have_final
+
+        self.init_parameters()
+
+    def forward(self, inputs):
+        out = inputs
+        for i, layer in enumerate(self.layers):
+            res = layer[0](out)
+            res = self.activation(res)
+            out = out + res
+            out = layer[1](out)
+        if self.have_final:
+            out = self.final_lin(out)
+        return out
+
+    def init_parameters(self):
+        for layer in self.layers:
+            layer[0].weight.data.uniform_(-0.01, 0.01)
+            layer[0].bias.data.fill_(0)
+
 
 class LongIE(nn.Module):
     def __init__(self,
@@ -170,8 +211,6 @@ class LongIE(nn.Module):
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len * 2])
         self.type_clf = Linears([self.entity_dim, hidden_dim, len(vocabs['entity'])])
 
-        self.ent_lstm = nn.LSTM(token_initial_dim, token_initial_dim, num_layers=1)
-
         self.relation_any_clf = Linears([self.entity_dim * 2 + type_embed_dim * 2, hidden_dim, 2])
 
         self.relation_clf = Linears([self.entity_dim * 2 + type_embed_dim * 2, hidden_dim, len(vocabs['relation'])])
@@ -179,9 +218,27 @@ class LongIE(nn.Module):
         self.coref_embed = Linears([self.entity_dim, hidden_dim, coref_embed_dim])
 
         self.type_embed = nn.Embedding(len(vocabs['entity']), type_embed_dim)
-        #self.type_from_here_clf = Linears([512, 128, len(vocabs['entity'])])
 
         self.entity_importance_weight = Linears([self.entity_dim, hidden_dim, 1])
+        """self.is_start_clf = ResidLinear(token_initial_dim, 2)
+        self.len_from_here_clf = ResidLinear(token_initial_dim, self.config.max_entity_len * 2)
+        self.type_clf = ResidLinear(self.entity_dim, len(vocabs['entity']))
+
+        self.relation_any_clf = ResidLinear(self.entity_dim * 2 + type_embed_dim * 2, 2)
+
+        self.relation_clf = ResidLinear(self.entity_dim * 2 + type_embed_dim * 2, len(vocabs['relation']))
+
+        self.coref_embed = ResidLinear(self.entity_dim, coref_embed_dim)
+
+        self.type_embed = nn.Embedding(len(vocabs['entity']), type_embed_dim)
+
+        self.entity_importance_weight = ResidLinear(self.entity_dim, 1)"""
+
+        self.mention_aggr = ResidLinear(token_initial_dim, have_final=False)
+        self.entity_aggr = ResidLinear(self.entity_dim, have_final=False)
+
+        #self.conv_aggr = nn.Conv1d()
+
 
         #150 just in case
         self.sent_num_embed = nn.Embedding(150, self.config.get('sent_num_embed_dim'))
@@ -197,7 +254,7 @@ class LongIE(nn.Module):
                                                 final_pred_embeds=False,
                                                 num_layers=span_transformer_layers)"""
 
-        self.rel_compress = nn.Linear(token_initial_dim * 2 + type_embed_dim * 2, token_initial_dim)
+        #self.rel_compress = nn.Linear(token_initial_dim * 2 + type_embed_dim * 2, token_initial_dim)
 
         """self.span_pair_transformer = SpanTransformer(span_dim=token_initial_dim,
                                                      vocabs=vocabs,
@@ -206,9 +263,9 @@ class LongIE(nn.Module):
                                                      nhead=4,
                                                      dropout=0.2)"""
 
-        self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
-                                              num_decoder_layers = 6,
-                                              d_model=token_initial_dim)
+        #self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
+        #                                      num_decoder_layers = 6,
+        #                                      d_model=token_initial_dim)
 
         """self.cluster_aggr_trans = AggrTransformer(span_dim=token_initial_dim,
                                                   num_layers=10,
@@ -286,7 +343,7 @@ class LongIE(nn.Module):
                 if self.config.get("use_first_wp"):
                     seq_token_mask.extend([1.0] + [0.0] * (max_token_len - 1))
                 else:
-                    seq_token_mask.extend([1.0 / token_len] * token_len
+                    seq_token_mask.extend([1.0 / max(1, token_len)] * token_len
                                       + [0.0] * (max_token_len - token_len))
                 offset += token_len
             # Pad the sequence
@@ -409,12 +466,23 @@ class LongIE(nn.Module):
     def forward_nn(self, batch: Batch, predict: bool = False, epoch=0):
         # Run the encoder to get contextualized word representations
 
+        print(batch.graphs[0].entities)
+        print(batch.pos_entity_offsets)
+
+        #print(batch.tokens)
+
+        #print(batch.token_lens)
+
+        #print(batch.pieces)
+
         encoder_outputs = self.encode_bert(batch.pieces,
                                            attention_mask=batch.attention_mask,
                                            token_lens=batch.token_lens)
         #encoder_outputs = torch.zeros(batch.token_embed_ids.shape[:2] + (self.encoder.config.hidden_size,)).cuda()
 
         batch_size = encoder_outputs.size(0)
+
+        #print(batch.sent_nums.max())
 
         if self.config.get('use_sent_num_embed'):
             sent_num_embeds = self.sent_num_embed(batch.sent_nums)
@@ -426,10 +494,12 @@ class LongIE(nn.Module):
             #word_embed_repr = word_embed_repr.detach()
             encoder_outputs = torch.cat((encoder_outputs, word_embed_repr), dim=-1)
 
-        if self.config.get('use_sent_context'):
-            sent_context = torch_scatter.scatter_max(encoder_outputs, batch.sent_nums, dim=1)[0]
 
         #encoded_starts = self.token_start_enc(encoder_outputs)
+
+        #print()
+
+        #print(encoder_outputs.mean(-1))
 
         is_start_pred = self.is_start_clf(encoder_outputs)
         len_from_here_pred = self.len_from_here_clf(encoder_outputs).view(batch_size, is_start_pred.shape[1], -1, 2)
@@ -439,6 +509,15 @@ class LongIE(nn.Module):
         #type_from_here_pred[is_start_pred.argmax(-1) == 0][:, 0] = 10000.
 
         #importance = self.importance_score(encoder_outputs)
+
+        #mention_aggr = self.mention_aggr(encoder_outputs)
+
+        #print(batch.sent_nums)
+
+        if self.config.get('use_sent_context'):
+            sent_context = torch_scatter.scatter_max(encoder_outputs, batch.sent_nums, dim=1)[0]
+
+        entity_span_list = []
 
 
         if not predict:
@@ -452,6 +531,8 @@ class LongIE(nn.Module):
             for b in range(batch_size):
                 for i in range(max_entities):
                     l, r = batch.pos_entity_offsets[b][i]
+
+                    entity_span_list.append((l, r))
                     #importance_weight = importance[b, l:r, 0].softmax(-1)
                     #entity_spans[b, i] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)), dim=0)
 
@@ -492,6 +573,9 @@ class LongIE(nn.Module):
                         if is_start_pred[b, i].argmax(-1) == 1 and len_from_here_pred[b, i, j].argmax(-1) == 1:
                             l = i
                             r = l + max(1, j)
+
+                            entity_span_list.append((l, r))
+
                             #r = l + len_from_here_pred[b, i].argmax(-1)
                             #importance_weight = importance[b, l:r, 0].softmax(-1)
                             #entity_spans[b, cur_ent] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)),
@@ -591,6 +675,8 @@ class LongIE(nn.Module):
             #ent_span_lists = torch.zeros(len(cluster_lists), max_in_cluster + 1, entity_spans.shape[-1]).cuda()
             #attention_mask = torch.zeros(ent_span_lists.shape).cuda()
             #attention_mask[:, 0] = 1.
+
+            #entity_spans_for_aggr = self.entity_aggr(entity_spans)
 
             entity_aggr = torch.zeros(batch_size, cluster_num, entity_spans.shape[-1]).cuda()
 
@@ -860,8 +946,10 @@ class LongIE(nn.Module):
             relation_nonzero_loss = self.relation_nonzero_loss(relation_any.view(-1, 2),
                                                   (batch.relation_labels.view(-1) > 0).long())
 
-            print(relation_any.argmax(-1).sum())
-            print((batch.relation_labels.view(-1) > 0).long().sum())
+            print("rels")
+            print("first pass:", relation_any.argmax(-1).sum())
+            print("second pass:", (relation_pred.argmax(-1) > 0).long().sum())
+            print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
 
             relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
                                           relation_true_for_cand.view(-1))

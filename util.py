@@ -402,7 +402,8 @@ def build_information_graph(batch,
                             coref_embeds,
                             relation_pred,
                             vocabs,
-                            gold_inputs=False):
+                            gold_inputs=False,
+                            symmetric_rel=True):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
     relation_itos = {i: s for s, i in vocabs['relation'].items()}
@@ -488,7 +489,13 @@ def build_information_graph(batch,
             if not(rel_matrix_nonzero.argmax(-1).sum() > 200 or rel_matrix_nonzero.argmax(-1).sum() == 0):
 
                 for i in range(cluster_num):
-                    for j in range(i + 1, cluster_num):
+                    for j in range(cluster_num):
+
+                        if i == j:
+                            continue
+
+                        if symmetric_rel and i > j:
+                            continue
 
                         if rel_matrix_nonzero[i, j].argmax(-1) == 1:
 
@@ -974,8 +981,9 @@ def summary_graph(pred_graph, true_graph, batch,
             arg2 = predicted_entities[pred_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
-        probs = F.log_softmax(pred_graph.rel_probs[i]).tolist()
-        predicted_relations.append((arg1, arg2, t, probs))
+        prob_pred = F.log_softmax(pred_graph.rel_probs[i]).tolist()
+        prob_pred = max(prob_pred)
+        predicted_relations.append((arg1, arg2, t, prob_pred))
 
     true_relations = []
 
