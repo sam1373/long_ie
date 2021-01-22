@@ -766,6 +766,11 @@ class LongIE(nn.Module):
                         relation_cand = (batch.relation_labels.view(batch_size, -1) > 0)
                         total_rel_cand = relation_cand.sum()
 
+                if total_rel_cand == 0:
+                    relation_cand = (relation_any.argmax(-1) == 1).long()
+                    relation_cand[:, 0] = 1.
+                    total_rel_cand = relation_cand.sum()
+
 
                 if not (predict and total_rel_cand > 500):
                     relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs.shape[-1]).cuda()
@@ -968,8 +973,7 @@ class LongIE(nn.Module):
 
             print("rels")
             print("first pass:", relation_any.argmax(-1).sum())
-            if relation_pred.shape[1] > 0:
-                print("second pass:", (relation_pred.argmax(-1) > 0).long().sum())
+            print("second pass:", (relation_pred.argmax(-1) > 0).long().sum())
             print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
             print("rels in candidates", (relation_true_for_cand.view(-1) > 0).long().sum())
 
