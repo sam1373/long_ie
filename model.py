@@ -968,7 +968,8 @@ class LongIE(nn.Module):
 
             print("rels")
             print("first pass:", relation_any.argmax(-1).sum())
-            print("second pass:", (relation_pred.argmax(-1) > 0).long().sum())
+            if relation_pred.shape[1] > 0:
+                print("second pass:", (relation_pred.argmax(-1) > 0).long().sum())
             print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
             print("rels in candidates", (relation_true_for_cand.view(-1) > 0).long().sum())
 
