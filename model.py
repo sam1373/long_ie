@@ -284,7 +284,7 @@ class LongIE(nn.Module):
         #event_weights[0] /= 3.
 
         rel_weights = torch.ones(len(vocabs['relation'])).cuda()
-        #rel_weights[0] /= 10.
+        rel_weights[0] /= 5.
 
         role_weights = torch.ones(len(vocabs['role'])).cuda()
         #role_weights[0] /= len(vocabs['role'])
@@ -745,7 +745,7 @@ class LongIE(nn.Module):
                     relation_cand = elem_max((relation_any.argmax(-1) == 1),
                                          (batch.relation_labels.view(batch_size, -1) > 0))
                 else:
-                    relation_cand = (batch.relation_labels.view(batch_size, -1) > 0)
+                    relation_cand = (relation_any.argmax(-1) == 1)
 
 
                 """if not predict:
@@ -760,8 +760,8 @@ class LongIE(nn.Module):
 
                 if total_rel_cand > 500:
                     if predict:
-                        relation_pred = torch.zeros(batch_size, 1, len(self.vocabs['relation'])).cuda()
-                        relation_true_for_cand = torch.zeros(batch_size, 1).cuda().long()
+                        relation_cand[:, 500:] = 0.
+                        total_rel_cand = relation_cand.sum()
                     if not predict:
                         relation_cand = (batch.relation_labels.view(batch_size, -1) > 0)
                         total_rel_cand = relation_cand.sum()

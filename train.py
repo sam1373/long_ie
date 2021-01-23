@@ -298,6 +298,9 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
+            if args.debug and batch_idx == 10:
+                break
+
             loss, train_loss_names = model(batch, epoch=epoch)
             # print(loss)
             # print(batch.pieces.shape, batch.entity_labels.shape, batch.relation_labels.shape)
@@ -390,7 +393,7 @@ for epoch in range(epoch_num):
 
             pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
 
-            if len(batch.tokens[0]) < 400 and batch_idx < 30:
+            if len(batch.tokens[0]) < 400 and batch_idx < 10:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs, None, id=batch_idx)
 
@@ -401,7 +404,7 @@ for epoch in range(epoch_num):
 
             pred_dev_gold_input_graphs.extend(pred_gold_input_graphs)
 
-            if len(batch.tokens[0]) < 400 and batch_idx < 30:
+            if len(batch.tokens[0]) < 400 and batch_idx < 10:
                 summary_graph(pred_gold_input_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_gi_", vocabs, None, id=batch_idx)
 

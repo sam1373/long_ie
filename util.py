@@ -480,7 +480,7 @@ def build_information_graph(batch,
         if relation_pred is not None:
             cluster_num = cur_clusters.max() + 1
 
-            #rel_cand = relation_cand[graph_idx].view(cluster_num, cluster_num)
+            rel_cand = relation_cand[graph_idx].view(cluster_num, cluster_num)
 
             rel_matrix_nonzero = relation_any[graph_idx].view(cluster_num, cluster_num, -1)
             cur_idx = 0
@@ -504,8 +504,7 @@ def build_information_graph(batch,
 
                     any_probs = rel_matrix_nonzero[i, j]
 
-                    if rel_matrix_nonzero[i, j].argmax(-1) == 1:
-
+                    if rel_cand[i, j]:
 
                         rel_pred = relation_pred[graph_idx, cur_idx].argmax().item()
 
