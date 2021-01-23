@@ -185,6 +185,7 @@ class LongIE(nn.Module):
                  span_transformer_layers: int = 10,#10
                  encoder_dropout_prob: float = 0.2,
                  type_embed_dim: int = 32,
+                 comp_dim: int = 128,
                  ):
         super().__init__()
 
@@ -200,20 +201,34 @@ class LongIE(nn.Module):
         if self.config.get('use_sent_num_embed'):
             token_initial_dim += self.config.get('sent_num_embed_dim')
 
+
+
+        #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
+
+        #self.type_project = nn.Linear(token_initial_dim, token_initial_dim)
+
+        self.initial_project = nn.Linear(token_initial_dim, comp_dim * 2)
+
+        token_initial_dim = comp_dim * 2
+
+
         self.entity_dim = token_initial_dim
         if self.config.get('use_sent_context'):
             self.entity_dim *= 2
 
-        #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
+        self.rel_project_1 = nn.Sequential(nn.Linear(self.entity_dim + type_embed_dim, comp_dim),
+                                           nn.LayerNorm(comp_dim))
+        self.rel_project_2 = nn.Sequential(nn.Linear(self.entity_dim + type_embed_dim, comp_dim),
+                                           nn.LayerNorm(comp_dim))
 
 
         self.is_start_clf = Linears([token_initial_dim, hidden_dim, 2])
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len * 2])
         self.type_clf = Linears([self.entity_dim, hidden_dim, len(vocabs['entity'])])
 
-        self.relation_any_clf = Linears([self.entity_dim * 2 + type_embed_dim * 2, hidden_dim, 2])
+        self.relation_any_clf = Linears([comp_dim * 2, hidden_dim, 2])
 
-        self.relation_clf = Linears([self.entity_dim * 2 + type_embed_dim * 2, hidden_dim, len(vocabs['relation'])])
+        self.relation_clf = Linears([comp_dim * 2, hidden_dim, len(vocabs['relation'])])
 
         self.coref_embed = Linears([self.entity_dim, hidden_dim, coref_embed_dim])
 
@@ -263,9 +278,12 @@ class LongIE(nn.Module):
                                                      nhead=4,
                                                      dropout=0.2)"""
 
-        #self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
-        #                                      num_decoder_layers = 6,
-        #                                      d_model=token_initial_dim)
+        #attn between rel pairs and enc tokens after init project
+        #both are comp_dim * 2
+        self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
+                                              num_decoder_layers = 6,
+                                              d_model=comp_dim * 2,
+                                              nhead=4)
 
         """self.cluster_aggr_trans = AggrTransformer(span_dim=token_initial_dim,
                                                   num_layers=10,
@@ -496,6 +514,7 @@ class LongIE(nn.Module):
             #word_embed_repr = word_embed_repr.detach()
             encoder_outputs = torch.cat((encoder_outputs, word_embed_repr), dim=-1)
 
+        encoder_outputs = self.initial_project(encoder_outputs)
 
         #encoded_starts = self.token_start_enc(encoder_outputs)
 
@@ -729,11 +748,17 @@ class LongIE(nn.Module):
 
                 entity_pairs = torch.cat((entity_pairs, entity_type_pairs), dim=-1)
 
-                entity_pairs = entity_pairs.view(entity_spans.shape[0], -1, entity_pairs.shape[2] * 2)
+                entity_pairs_proj_1 = self.rel_project_1(entity_pairs)
+
+                entity_pairs_proj_1 = entity_pairs_proj_1.view(entity_spans.shape[0], -1, entity_pairs_proj_1.shape[2] * 2)
+
+                entity_pairs_proj_2 = self.rel_project_2(entity_pairs)
+
+                entity_pairs_proj_2 = entity_pairs_proj_2.view(entity_spans.shape[0], -1, entity_pairs_proj_2.shape[2] * 2)
 
                 #entity_pairs = self.span_pair_transformer(entity_pairs)
 
-                relation_any = self.relation_any_clf(entity_pairs)
+                relation_any = self.relation_any_clf(entity_pairs_proj_1)
 
                 #relation_any[:, :, 1] = 1000.
 
@@ -773,7 +798,7 @@ class LongIE(nn.Module):
 
 
                 if not (predict and total_rel_cand > 500):
-                    relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs.shape[-1]).cuda()
+                    relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs_proj_2.shape[-1]).cuda()
                     if not predict:
                         relation_true_for_cand = torch.zeros(batch_size, total_rel_cand).cuda().long()
                     cur_idx = 0
@@ -784,7 +809,7 @@ class LongIE(nn.Module):
                                 if i == j:
                                     continue
                                 if relation_cand[b, pair_idx]:#relation_any.argmax(-1)[b, pair_idx] == 1:
-                                    relation_cand_pairs[b, cur_idx] = entity_pairs[b, pair_idx]
+                                    relation_cand_pairs[b, cur_idx] = entity_pairs_proj_2[b, pair_idx]
                                     if not predict:
                                         relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
                                     cur_idx += 1
@@ -797,6 +822,10 @@ class LongIE(nn.Module):
 
                     #relation_cand_pairs = self.rel_transformer(encoder_outputs.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
+
+
+                    relation_cand_pairs = self.rel_transformer(encoder_outputs.transpose(0, 1),
+                                                               relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
 
@@ -878,25 +907,17 @@ class LongIE(nn.Module):
 
         if self.config.get("do_coref"):
 
-            #process coref_embeds
-            #
-            # get avg for clusters
-            # get avg between clusters
-            # get dist losses
-            # also produce predictions
+            mention_pair_ids = get_pairwise_idxs(coref_embeds.shape[1], coref_embeds.shape[1], skip_diagonal=True)
+
+            random_pairs = random.sample(mention_pair_ids, coref_embeds.shape[1] * 10)
+
+
 
             coref_true_cluster_means = torch_scatter.scatter_mean(coref_embeds, batch.mention_to_ent_coref, dim=1)
 
-            #coref_true_cluster_scattered = torch.zeros(coref_embeds.shape).cuda()
-
             coref_true_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
-                                                      batch.mention_to_ent_coref.unsqueeze(-1).expand(-1, -1, coref_true_cluster_means.shape[-1]))
-
-
-
-            #random_shift = random.randint(0, coref_embeds.shape[1])
-            #shifted_clusters =  torch.cat((batch.mention_to_ent_coref[:, random_shift:],
-            #                               batch.mention_to_ent_coref[:, random_shift]), dim=1)
+                                                      batch.mention_to_ent_coref.unsqueeze(-1).
+                                                      expand(-1, -1, coref_true_cluster_means.shape[-1]))
 
             total_clusters = batch.mention_to_ent_coref.max() + 1
             if total_clusters > 1:
@@ -912,20 +933,9 @@ class LongIE(nn.Module):
                 dist_to_false_cluster_center = torch.Tensor([0]).cuda()
 
             dist_to_true_cluster_center = torch.norm(coref_embeds - coref_true_cluster_aligned, dim=-1)
-            #dist_to_false_cluster_center = torch.clamp(5 - torch.norm(coref_embeds - coref_false_cluster_aligned, dim=-1), min=0) ** 2
-
-            #avg_of_clusters = torch.mean(coref_true_cluster_means, dim=-2)
-
-            #dist_to_avg_of_clusters = torch.norm(coref_true_cluster_means - avg_of_clusters, dim=-1)
 
             coref_loss_attract = dist_to_true_cluster_center.mean()
             coref_loss_repel = dist_to_false_cluster_center.mean()
-            #coref_cluster_loss = dist_to_true_cluster_center.mean() - dist_to_avg_of_clusters.mean()
-
-            #coref_pred = coref_pred.view(-1, coref_pred.shape[-1])
-
-            #coref_loss = self.span_loss(coref_pred,
-            #                                   batch.coref_labels[:coref_pred.shape[0]]) * 10.
 
             if not torch.isnan(coref_loss_attract):
                 loss.append(coref_loss_attract)
@@ -982,8 +992,17 @@ class LongIE(nn.Module):
 
             print("intersect:", relation_any_cont_gold.sum())
 
+            rel_pred_correct = (relation_pred.view(-1, relation_pred.shape[-1]).argmax(-1) ==
+                                relation_true_for_cand.view(-1))
+
+            print("predicted right:", rel_pred_correct.sum())
+
+            rel_pred_correct_nonzero = elem_min(rel_pred_correct, (relation_true_for_cand.view(-1) > 0))
+
+            print("predicted right non-zero:", rel_pred_correct_nonzero.sum())
+
             relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
-                                          relation_true_for_cand.view(-1))
+                                          relation_true_for_cand.view(-1)) * 5
 
             #relation_loss = self.relation_loss(relation_pred,
             #                                   batch.relation_labels.view(-1)[:relation_pred.shape[0]]) * 5.
