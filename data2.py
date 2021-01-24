@@ -517,7 +517,10 @@ class IEDataset(Dataset):
         for doc in self.data:
             for sent in doc.sentences:
                 for relation in sent.relations:
-                    if relation_type_level == 'type':
+                    if relation_type_level == 'multitype':
+                        for type in relation.relation_type:
+                            relation_type_set.add(type)
+                    elif relation_type_level == 'type':
                         relation_type = relation.relation_type
                     elif relation_type_level == 'subtype':
                         relation_type = '{}.{}'.format(

@@ -19,6 +19,8 @@
     "ignore_title": false,
     "ignore_first_header": false,
 
+    "do_test": false,
+
     "split_by_doc_lens": false,
 
     "relation_type_level": "type",
@@ -28,7 +30,7 @@
 
     "batch_size": 1,
     "eval_batch_size": 1,
-    "max_epoch": 31,
+    "max_epoch": 61,
     "learning_rate": 1e-3,
     "bert_learning_rate": 1e-5,
     "weight_decay": 1e-4,

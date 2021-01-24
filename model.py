@@ -31,14 +31,19 @@ def calculate_enumeration_num(seq_len: int,
     return seq_len * max_span_len - ((max_span_len - 1) * max_span_len) // 2
 
 
-def get_pairwise_idxs(num1: int, num2: int, skip_diagonal: bool = False):
+def get_pairwise_idxs(num1: int, num2: int, skip_diagonal: bool = False, sent_nums = None, sep=True):
     idxs = []
     for i in range(num1):
         for j in range(num2):
             if i == j and skip_diagonal:
                 continue
-            idxs.append(i)
-            idxs.append(j)
+            if sent_nums is not None and sent_nums[i] != sent_nums[j]:
+                continue
+            if sep:
+                idxs.append(i)
+                idxs.append(j)
+            else:
+                idxs.append((i, j))
     return idxs
 
 
@@ -540,6 +545,8 @@ class LongIE(nn.Module):
 
         entity_span_list = []
 
+        ent_sent_nums = []
+
 
         if not predict:
 
@@ -563,6 +570,8 @@ class LongIE(nn.Module):
                                                        dim=-1)
                     else:
                         entity_spans[b, i] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+
+                    ent_sent_nums.append(batch.sent_nums[b, l].item())
 
                     #entity_spans[b, i] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)
 
@@ -608,6 +617,9 @@ class LongIE(nn.Module):
                                                                dim=-1)
                             else:
                                 entity_spans[b, cur_ent] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+
+                            ent_sent_nums.append(batch.sent_nums[b, l].item())
+
                             #hmmm?
 
                             #entity_spans[b, cur_ent] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)
@@ -631,6 +643,8 @@ class LongIE(nn.Module):
         relation_true_for_cand = None
 
         if self.config.get("do_coref"):
+
+
             coref_embed = self.coref_embed(entity_spans)
 
             if predict:
@@ -639,7 +653,10 @@ class LongIE(nn.Module):
 
                 if cluster_labels.shape[1] > 1:
                     for b in range(batch_size):
-                        clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).\
+                        clustering = AgglomerativeClustering(distance_threshold=0.5,
+                                                             n_clusters=None,
+                                                             affinity="cosine",
+                                                             linkage="average").\
                             fit(coref_embed[b].detach().cpu().numpy())
                         cluster_labels[b] = torch.LongTensor(clustering.labels_).cuda()
 
@@ -681,7 +698,10 @@ class LongIE(nn.Module):
 
                 cluster_labels = noisy_clusters
 
+
             entity_imp = self.entity_importance_weight(entity_spans)
+
+            ent_appears_sets = [set() for i in range(cluster_num)]
 
             cluster_lists = [[] for i in range(cluster_num)]
 
@@ -689,6 +709,7 @@ class LongIE(nn.Module):
             for b in range(batch_size):
                 for i in range(cluster_labels.shape[1]):
                     cluster_lists[cluster_labels[b, i].item()].append(i)
+                    ent_appears_sets[cluster_labels[b, i].item()].add(ent_sent_nums[i])
 
             max_in_cluster = max([len(cl) for cl in cluster_lists])
 
@@ -791,11 +812,30 @@ class LongIE(nn.Module):
                         relation_cand = (batch.relation_labels.view(batch_size, -1) > 0)
                         total_rel_cand = relation_cand.sum()
 
+
+                #if only between mentions in the same sentence
+                if self.config.get("only_in_sent_rels", False):
+                    in_sent = []
+                    for i in range(cluster_num):
+                        cur_l = []
+                        for j in range(cluster_num):
+                            if i == j:
+                                cur_l.append(False)
+                                continue
+                            cur_l.append(len(ent_appears_sets[i].intersection(ent_appears_sets[j])) > 0)
+                        in_sent.append(cur_l)
+
+                    in_sent = torch.LongTensor(in_sent).cuda()
+
+                    relation_cand = elem_min(relation_cand.long(), in_sent.view(batch_size, -1))
+
                 if total_rel_cand == 0:
                     relation_cand = (relation_any.argmax(-1) == 1).long()
                     relation_cand[:, 0] = 1.
                     total_rel_cand = relation_cand.sum()
 
+                #print(relation_cand)
+                #print(relation_cand.shape)
 
                 if not (predict and total_rel_cand > 500):
                     relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs_proj_2.shape[-1]).cuda()
@@ -806,13 +846,14 @@ class LongIE(nn.Module):
                         for i in range(cluster_num):
                             for j in range(cluster_num):
                                 pair_idx = i * cluster_num + j
-                                if i == j:
-                                    continue
+
                                 if relation_cand[b, pair_idx]:#relation_any.argmax(-1)[b, pair_idx] == 1:
                                     relation_cand_pairs[b, cur_idx] = entity_pairs_proj_2[b, pair_idx]
                                     if not predict:
                                         relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
                                     cur_idx += 1
+
+
 
                     #relation_cand_pairs = self.rel_compress(relation_cand_pairs)
 
@@ -907,13 +948,42 @@ class LongIE(nn.Module):
 
         if self.config.get("do_coref"):
 
-            mention_pair_ids = get_pairwise_idxs(coref_embeds.shape[1], coref_embeds.shape[1], skip_diagonal=True)
+            mention_pair_ids = get_pairwise_idxs(coref_embeds.shape[1], coref_embeds.shape[1],
+                                                 skip_diagonal=True, sep=False)
 
-            random_pairs = random.sample(mention_pair_ids, coref_embeds.shape[1] * 10)
+            random_pairs = random.sample(mention_pair_ids, min(len(mention_pair_ids),
+                                                               coref_embeds.shape[1] * 10))
 
+            are_coref = []
 
+            for a, b in random_pairs:
+                if batch.mention_to_ent_coref[0, a] == batch.mention_to_ent_coref[0, b]:
+                    are_coref.append(1)
+                else:
+                    are_coref.append(0)
 
-            coref_true_cluster_means = torch_scatter.scatter_mean(coref_embeds, batch.mention_to_ent_coref, dim=1)
+            are_coref = torch.LongTensor(are_coref).cuda()#.view(-1, 1).expand(-1, coref_embeds.shape[-1] * 2)
+
+            random_pairs = torch.LongTensor(random_pairs).cuda()
+
+            coref_embed_pairs = torch.gather(coref_embeds, 1, random_pairs.view(1, -1, 1).
+                                            expand(coref_embeds.shape[0], -1, coref_embeds.shape[2])).\
+                                            view(-1, 2 * coref_embeds.shape[-1])
+
+            are_coref_pairs = coref_embed_pairs[are_coref == 1]
+            are_not_coref_pairs = coref_embed_pairs[are_coref == 0]
+
+            coref_dim = coref_embeds.shape[-1]
+
+            are_coref_sim = torch.cosine_similarity(are_coref_pairs[:, :coref_dim],
+                                                    are_coref_pairs[:, coref_dim:])
+            are_not_coref_sim = torch.cosine_similarity(are_not_coref_pairs[:, :coref_dim],
+                                                        are_not_coref_pairs[:, coref_dim:])
+
+            coref_loss_attract = - are_coref_sim.mean()
+            coref_loss_repel = are_not_coref_sim.mean()
+
+            """coref_true_cluster_means = torch_scatter.scatter_mean(coref_embeds, batch.mention_to_ent_coref, dim=1)
 
             coref_true_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
                                                       batch.mention_to_ent_coref.unsqueeze(-1).
@@ -935,7 +1005,7 @@ class LongIE(nn.Module):
             dist_to_true_cluster_center = torch.norm(coref_embeds - coref_true_cluster_aligned, dim=-1)
 
             coref_loss_attract = dist_to_true_cluster_center.mean()
-            coref_loss_repel = dist_to_false_cluster_center.mean()
+            coref_loss_repel = dist_to_false_cluster_center.mean()"""
 
             if not torch.isnan(coref_loss_attract):
                 loss.append(coref_loss_attract)
@@ -982,10 +1052,11 @@ class LongIE(nn.Module):
                                                   (batch.relation_labels.view(-1) > 0).long())
 
             print("rels")
-            print("first pass:", relation_any.argmax(-1).sum())
-            print("second pass:", (relation_pred.argmax(-1) > 0).long().sum())
+            #print("first pass:", relation_any.argmax(-1).sum())
+            print("candidates:", relation_pred.shape[1])
+            print("predicted as non-zero:", (relation_pred.argmax(-1) > 0).long().sum())
             print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
-            print("rels in candidates", (relation_true_for_cand.view(-1) > 0).long().sum())
+            #print("rels in candidates", (relation_true_for_cand.view(-1) > 0).long().sum())
 
             relation_any_cont_gold = elem_min(relation_any.argmax(-1).view(-1),
                                               (batch.relation_labels.view(-1) > 0).long())

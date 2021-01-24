@@ -28,6 +28,7 @@ class Config():
         self.test_file = kwargs.pop('test_file', None)
         self.log_path = kwargs.pop('log_path', None)
         self.split_by_doc_lens = kwargs.pop('split_by_doc_lens', False)
+        self.do_test = kwargs.pop('do_test', True)
 
         self.use_sent_set = kwargs.pop('use_sent_set', False)
         self.sent_set_file = kwargs.pop('sent_set_file', None)
@@ -43,6 +44,7 @@ class Config():
         self.grad_clipping = kwargs.pop('grad_clipping', 5.0)
         # others
         self.symmetric_relations = kwargs.pop('symmetric_relations', True)
+        self.only_in_sent_rels = kwargs.pop('only_in_sent_rels', False)
 
         self.remove_pro = kwargs.pop('remove_pro', False)
 

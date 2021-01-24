@@ -276,7 +276,7 @@ global_step = 0
 
 writer = SummaryWriter()
 
-do_test = True
+do_test = config.get("do_test", True)
 
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
@@ -393,7 +393,7 @@ for epoch in range(epoch_num):
 
             pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
 
-            if len(batch.tokens[0]) < 400 and batch_idx < 10:
+            if len(batch.tokens[0]) < 400 and batch_idx < 10 and not args.debug:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs, None, id=batch_idx)
 
@@ -404,7 +404,7 @@ for epoch in range(epoch_num):
 
             pred_dev_gold_input_graphs.extend(pred_gold_input_graphs)
 
-            if len(batch.tokens[0]) < 400 and batch_idx < 10:
+            if len(batch.tokens[0]) < 400 and batch_idx < 10 and not args.debug:
                 summary_graph(pred_gold_input_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_gi_", vocabs, None, id=batch_idx)
 
@@ -442,7 +442,7 @@ for epoch in range(epoch_num):
             torch.save(state, "model.pt")
             best_dev_score = dev_scores[score_to_use]['f']
 
-    if 0 and epoch % 5 == 0 and do_test and not args.debug:
+    if epoch % 5 == 0 and do_test and not args.debug:
         for ts_idx, test_set in enumerate(test_sets):
             if len(test_set) == 0:
                 continue

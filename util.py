@@ -53,7 +53,7 @@ def generate_vocabs(datasets, coref=False,
                 relation_type_set_.add(relation_type + '_inv')
 
     # entity and trigger labels
-    prefix = ['B', 'I']
+    """prefix = ['B', 'I']
     entity_label_stoi = {'O': 0}
     trigger_label_stoi = {'O': 0}
     for t in entity_type_set:
@@ -61,7 +61,7 @@ def generate_vocabs(datasets, coref=False,
             entity_label_stoi['{}-{}'.format(p, t)] = len(entity_label_stoi)
     for t in event_type_set:
         for p in prefix:
-            trigger_label_stoi['{}-{}'.format(p, t)] = len(trigger_label_stoi)
+            trigger_label_stoi['{}-{}'.format(p, t)] = len(trigger_label_stoi)"""
 
     entity_type_stoi = {k: i for i, k in enumerate(entity_type_set, 1)}
     entity_type_stoi['O'] = 0
@@ -85,8 +85,8 @@ def generate_vocabs(datasets, coref=False,
         'relation': relation_type_stoi,
         'role': role_type_stoi,
         'mention': mention_type_stoi,
-        'entity_label': entity_label_stoi,
-        'trigger_label': trigger_label_stoi,
+        #'entity_label': entity_label_stoi,
+        #'trigger_label': trigger_label_stoi,
     }
 
 
@@ -1069,11 +1069,11 @@ def load_word_embed(path: str,
 
 def elem_max(t1, t2):
     combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
-    return torch.max(combined, dim=-1)[0].squeeze(-1)
+    return torch.max(combined, dim=-1)[0]#.squeeze(-1)
 
 def elem_min(t1, t2):
     combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
-    return torch.min(combined, dim=-1)[0].squeeze(-1)
+    return torch.min(combined, dim=-1)[0]#.squeeze(-1)
 
 def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagonal: bool = False):
     idxs1, idxs2 = [], []
