@@ -212,9 +212,9 @@ class LongIE(nn.Module):
 
         #self.type_project = nn.Linear(token_initial_dim, token_initial_dim)
 
-        self.initial_project = nn.Linear(token_initial_dim, comp_dim * 2)
+        self.rel_context_project = nn.Linear(token_initial_dim, comp_dim * 2)
 
-        token_initial_dim = comp_dim * 2
+        #token_initial_dim = comp_dim * 2
 
 
         self.entity_dim = token_initial_dim
@@ -230,6 +230,10 @@ class LongIE(nn.Module):
         self.is_start_clf = Linears([token_initial_dim, hidden_dim, 2])
         self.len_from_here_clf = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len * 2])
         self.type_clf = Linears([self.entity_dim, hidden_dim, len(vocabs['entity'])])
+
+        self.is_start_clf_ev = Linears([token_initial_dim, hidden_dim, 2])
+        self.len_from_here_clf_ev = Linears([token_initial_dim, hidden_dim, self.config.max_entity_len * 2])
+        self.type_clf_ev = Linears([self.entity_dim, hidden_dim, len(vocabs['event'])])
 
         self.relation_any_clf = Linears([comp_dim * 2, hidden_dim, 2])
 
@@ -285,8 +289,8 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
-                                              num_decoder_layers = 6,
+        self.rel_transformer = nn.Transformer(num_encoder_layers = 1,
+                                              num_decoder_layers = 3,
                                               d_model=comp_dim * 2,
                                               nhead=4)
 
@@ -519,7 +523,7 @@ class LongIE(nn.Module):
             #word_embed_repr = word_embed_repr.detach()
             encoder_outputs = torch.cat((encoder_outputs, word_embed_repr), dim=-1)
 
-        encoder_outputs = self.initial_project(encoder_outputs)
+        #encoder_outputs = self.initial_project(encoder_outputs)
 
         #encoded_starts = self.token_start_enc(encoder_outputs)
 
@@ -529,6 +533,14 @@ class LongIE(nn.Module):
 
         is_start_pred = self.is_start_clf(encoder_outputs)
         len_from_here_pred = self.len_from_here_clf(encoder_outputs).view(batch_size, is_start_pred.shape[1], -1, 2)
+
+        is_start_pred_ev = len_from_here_pred_ev = None
+        
+        if self.config.get("classify_triggers"):
+            is_start_pred_ev = self.is_start_clf_ev(encoder_outputs)
+            len_from_here_pred_ev = self.len_from_here_clf_ev(encoder_outputs).view(batch_size, is_start_pred.shape[1], -1, 2)
+        
+        
         #type_from_here_pred = self.type_from_here_clf(encoded_starts)
 
         #len_from_here_pred[is_start_pred.argmax(-1) == 0][:, 0] = 10000.
@@ -547,10 +559,7 @@ class LongIE(nn.Module):
 
         ent_sent_nums = []
 
-
         if not predict:
-
-            #max_entities = batch.is_start.sum(-1).max().item()
 
             max_entities = batch.len_from_here[batch.is_start == 1].sum()
 
@@ -561,9 +570,6 @@ class LongIE(nn.Module):
                     l, r = batch.pos_entity_offsets[b][i]
 
                     entity_span_list.append((l, r))
-                    #importance_weight = importance[b, l:r, 0].softmax(-1)
-                    #entity_spans[b, i] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)), dim=0)
-
                     if self.config.get("use_sent_context"):
                         entity_spans[b, i] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
                                                         sent_context[b, batch.sent_nums[b, l]]),
@@ -573,12 +579,25 @@ class LongIE(nn.Module):
 
                     ent_sent_nums.append(batch.sent_nums[b, l].item())
 
-                    #entity_spans[b, i] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)
+            if self.config.get("classify_triggers"):
 
-                    #encoder_outputs[b, l]
+                max_ev = batch.len_from_here_ev[batch.is_start_ev == 1].sum()
+
+                trigger_spans = torch.zeros(batch_size, max_ev, self.entity_dim).cuda()
+
+                for b in range(batch_size):
+                    for i in range(max_ev):
+                        l, r = batch.pos_trigger_offsets[b][i]
+
+                        #entity_span_list.append((l, r))
+                        if self.config.get("use_sent_context"):
+                            trigger_spans[b, i] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
+                                                            sent_context[b, batch.sent_nums[b, l]]),
+                                                           dim=-1)
+                        else:
+                            trigger_spans[b, i] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+
         else:
-
-            #max_entities = is_start_pred.argmax(-1).sum(-1).max().item()
 
             if is_start_pred.argmax(-1).sum() == 0:
                 max_entities = 0
@@ -606,11 +625,6 @@ class LongIE(nn.Module):
 
                             entity_span_list.append((l, r))
 
-                            #r = l + len_from_here_pred[b, i].argmax(-1)
-                            #importance_weight = importance[b, l:r, 0].softmax(-1)
-                            #entity_spans[b, cur_ent] = torch.sum(torch.mul(encoder_outputs[b, l:r], importance_weight.unsqueeze(-1)),
-                            #                           dim=0)
-                            #entity_spans[b, cur_ent] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
                             if self.config.get("use_sent_context"):
                                 entity_spans[b, cur_ent] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
                                                                 sent_context[b, batch.sent_nums[b, l]]),
@@ -620,19 +634,57 @@ class LongIE(nn.Module):
 
                             ent_sent_nums.append(batch.sent_nums[b, l].item())
 
-                            #hmmm?
-
-                            #entity_spans[b, cur_ent] = self.ent_lstm(encoder_outputs[b, l:r].unsqueeze(1))[1][1].view(-1)
-
-                            #entity_spans[b, cur_ent] = encoder_outputs[b, l]
-
                             cur_ent += 1
 
                             if cur_ent >= max_entities:
                                 break
+                                
+            if self.config.get("classify_triggers"):
 
+                if is_start_pred_ev.argmax(-1).sum() == 0:
+                    max_ev = 0
+                else:
+                    max_ev = len_from_here_pred_ev[is_start_pred_ev.argmax(-1) == 1].view(-1, 2).argmax(-1).sum()
 
-        #entity_spans = self.span_transformer(entity_spans)
+                """if max_ev == 0:
+                    is_start_pred_ev[:, 0, 1] = 1000.
+
+                    len_from_here_pred_ev[:, 0, :, 1] = -1000.
+                    len_from_here_pred_ev[:, 0, 1, 1] = 1000.
+
+                    max_ev = 1"""
+
+                trigger_spans = None
+
+                if max_ev > 0:
+
+                    trigger_spans = torch.zeros(batch_size, max_ev, self.entity_dim).cuda()
+    
+                    cur_ent = 0
+    
+                    for b in range(batch_size):
+                        for i in range(is_start_pred_ev.shape[1]):
+                            for j in range(self.config.max_trigger_len):
+                                if is_start_pred_ev[b, i].argmax(-1) == 1 and len_from_here_pred_ev[b, i, j].argmax(-1) == 1:
+                                    l = i
+                                    r = l + max(1, j)
+    
+                                    #entity_span_list.append((l, r))
+    
+                                    if self.config.get("use_sent_context"):
+                                        trigger_spans[b, cur_ent] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
+                                                                              sent_context[b, batch.sent_nums[b, l]]),
+                                                                             dim=-1)
+                                    else:
+                                        trigger_spans[b, cur_ent] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+    
+                                    #ent_sent_nums.append(batch.sent_nums[b, l].item())
+    
+                                    cur_ent += 1
+    
+                                    if cur_ent >= max_ev:
+                                        break
+
 
         cluster_labels = None
 
@@ -642,8 +694,9 @@ class LongIE(nn.Module):
 
         relation_true_for_cand = None
 
-        if self.config.get("do_coref"):
+        relation_cand = None
 
+        if self.config.get("do_coref"):
 
             coref_embed = self.coref_embed(entity_spans)
 
@@ -653,18 +706,10 @@ class LongIE(nn.Module):
 
                 if cluster_labels.shape[1] > 1:
                     for b in range(batch_size):
-                        clustering = AgglomerativeClustering(distance_threshold=0.5,
-                                                             n_clusters=None,
-                                                             affinity="cosine",
-                                                             linkage="average").\
+                        clustering = AgglomerativeClustering(distance_threshold=1.,
+                                                             n_clusters=None).\
                             fit(coref_embed[b].detach().cpu().numpy())
                         cluster_labels[b] = torch.LongTensor(clustering.labels_).cuda()
-
-                #entity_means = torch_scatter.scatter_mean(entity_spans, cluster_labels, dim=1)
-
-                #entity_aggr_aligned = torch.gather(entity_means, 1,
-                #                                 cluster_labels.unsqueeze(-1).
-                #                                 expand(-1, -1, entity_means.shape[-1]))
 
                 cluster_num = cluster_labels.max() + 1
 
@@ -685,26 +730,50 @@ class LongIE(nn.Module):
                 #to not mess up number of clusters
                 #noisy_clusters[true_clusters == cluster_num] = cluster_num
 
-                #entity_means = torch_scatter.scatter_mean(entity_spans, noisy_clusters, dim=1)
-
-                """if entity_means.shape[1] < cluster_num:
-                    entity_means_pad = torch.zeros(batch_size, cluster_num, entity_means.shape[-1]).cuda()
-                    entity_means_pad[:, :entity_means.shape[1]] = entity_means
-                    entity_means = entity_means_pad"""
-
-                #entity_aggr_aligned = torch.gather(entity_means, 1,
-                #                                 noisy_clusters.unsqueeze(-1).
-                #                                 expand(-1, -1, entity_means.shape[-1]))
-
                 cluster_labels = noisy_clusters
 
+            if self.config.get("classify_triggers") and trigger_spans is not None:
 
-            entity_imp = self.entity_importance_weight(entity_spans)
+                coref_embed_ev = self.coref_embed(trigger_spans)
+
+                if predict:
+
+                    cluster_labels_ev = torch.zeros(coref_embed_ev.shape[:2]).cuda().long()
+
+                    if cluster_labels_ev.shape[1] > 1:
+                        for b in range(batch_size):
+                            clustering = AgglomerativeClustering(distance_threshold=1.,
+                                                                 n_clusters=None). \
+                                fit(coref_embed_ev[b].detach().cpu().numpy())
+                            cluster_labels_ev[b] = torch.LongTensor(clustering.labels_).cuda()
+
+                    cluster_num_ev = cluster_labels_ev.max() + 1
+
+                else:
+
+                    true_clusters = batch.mention_to_ev_coref
+
+                    cluster_num_ev = true_clusters.max() + 1
+
+                    cluster_noise = torch.randint(0, cluster_num, true_clusters.shape).cuda()
+
+                    cluster_mask = torch.rand(true_clusters.shape).cuda() > 0.8
+
+                    noisy_clusters = torch.clone(true_clusters)
+
+                    # noisy_clusters[cluster_mask] = cluster_noise[cluster_mask]
+
+                    # to not mess up number of clusters
+                    # noisy_clusters[true_clusters == cluster_num] = cluster_num
+
+                    cluster_labels_ev = noisy_clusters
+
+
+            #entity_imp = self.entity_importance_weight(entity_spans)
 
             ent_appears_sets = [set() for i in range(cluster_num)]
 
             cluster_lists = [[] for i in range(cluster_num)]
-
 
             for b in range(batch_size):
                 for i in range(cluster_labels.shape[1]):
@@ -712,6 +781,7 @@ class LongIE(nn.Module):
                     ent_appears_sets[cluster_labels[b, i].item()].add(ent_sent_nums[i])
 
             max_in_cluster = max([len(cl) for cl in cluster_lists])
+
 
             #+ 1 for aggregating
             #ent_span_lists = torch.zeros(len(cluster_lists), max_in_cluster + 1, entity_spans.shape[-1]).cuda()
@@ -726,24 +796,9 @@ class LongIE(nn.Module):
             for b in range(batch_size):
                 for i in range(cluster_num):
                     entity_spans_cluster = entity_spans[b][cluster_labels[b] == i]
-                    imp_weights = entity_imp[b][cluster_labels[b] == i]
 
-                    imp_weights = imp_weights.softmax(0)
-                    entity_aggr[b, i] = torch.max(torch.mul(entity_spans_cluster, imp_weights),
-                                               dim=0)[0]
+                    entity_aggr[b, i] = torch.max(entity_spans_cluster, dim=0)[0]
 
-                #for j in range(len(cluster_lists[i])):
-                    #ent_span_lists[i, j + 1] = entity_spans[0, cluster_lists[i][j]]
-                    #attention_mask[i, j + 1] = 1.
-
-                #if len(cluster_lists)
-                #ent_span_lists[i, 0] = torch.mean(ent_span_lists[i, 1 : len(cluster_lists[i]) + 1], dim=0)
-
-            #entity_aggr = self.cluster_aggr_trans(ent_span_lists).view(1, -1, entity_spans.shape[-1])"""
-
-
-
-            #entity_aggr = torch_scatter.scatter_mean(entity_spans * entity_weight, cluster_labels, dim=1)
 
             #cluster types pred
             type_pred = self.type_clf(entity_aggr)
@@ -751,10 +806,6 @@ class LongIE(nn.Module):
             entity_aggr_aligned = torch.gather(entity_aggr, 1,
                                                cluster_labels.unsqueeze(-1).
                                                expand(-1, -1, entity_aggr.shape[-1]))
-
-            #print()
-            #cluster_num = entity_means.shape[1]
-
 
 
             if self.config.get("classify_relations"):
@@ -864,8 +915,9 @@ class LongIE(nn.Module):
                     #relation_cand_pairs = self.rel_transformer(encoder_outputs.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
+                    encoder_comp = self.rel_context_project(encoder_outputs)
 
-                    relation_cand_pairs = self.rel_transformer(encoder_outputs.transpose(0, 1),
+                    relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
                                                                relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
@@ -873,10 +925,47 @@ class LongIE(nn.Module):
 
             entity_spans = entity_aggr_aligned
 
+
+            if self.config.get("classify_triggers") and trigger_spans is not None:
+
+                cluster_lists = [[] for i in range(cluster_num_ev)]
+
+                for b in range(batch_size):
+                    for i in range(cluster_labels_ev.shape[1]):
+                        cluster_lists[cluster_labels_ev[b, i].item()].append(i)
+
+                max_in_cluster = max([len(cl) for cl in cluster_lists])
+
+                trig_aggr = torch.zeros(batch_size, cluster_num_ev, trigger_spans.shape[-1]).cuda()
+
+                for b in range(batch_size):
+                    for i in range(cluster_num_ev):
+                        trigger_spans_cluster = trigger_spans[b][cluster_labels_ev[b] == i]
+
+                        trig_aggr[b, i] = torch.max(trigger_spans_cluster, dim=0)[0]
+
+                # cluster types pred
+                #type_pred_ev = self.type_clf(trig_aggr)
+
+                trig_aggr_aligned = torch.gather(trig_aggr, 1,
+                                                   cluster_labels_ev.unsqueeze(-1).
+                                                   expand(-1, -1, trig_aggr.shape[-1]))
+
+                trigger_spans = trig_aggr_aligned
+
+                #type_pred_ev = self.type_clf_ev(trig_aggr_aligned)
+
         else:
             coref_embed = None
 
         type_pred = self.type_clf(entity_spans)
+
+        if self.config.get("classify_triggers") and trigger_spans is not None:
+            type_pred_ev = self.type_clf_ev(trigger_spans)
+        else:
+            type_pred_ev = None
+            coref_embed_ev = None
+            cluster_labels_ev = None
 
         if not self.config.get("do_coref"):
             if self.config.get("classify_relations"):
@@ -896,12 +985,14 @@ class LongIE(nn.Module):
                 relation_pred = None
 
         return is_start_pred, len_from_here_pred, type_pred, cluster_labels,\
+               is_start_pred_ev, len_from_here_pred_ev, type_pred_ev, cluster_labels_ev, coref_embed_ev,\
                relation_any, relation_cand, relation_true_for_cand, coref_embed, relation_pred
 
 
 
     def forward(self, batch: Batch, last_only: bool = True, epoch=0):
-        is_start, len_from_here, type_pred, cluster_labels,\
+        is_start, len_from_here, type_pred, cluster_labels, \
+        is_start_pred_ev, len_from_here_pred_ev, type_pred_ev, cluster_labels_ev, coref_embed_ev, \
         relation_any, relation_cand, relation_true_for_cand,\
         coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
 
@@ -912,11 +1003,24 @@ class LongIE(nn.Module):
         loss = []
 
         if self.config.get("classify_triggers"):
-            span_candidate_loss = self.span_loss(span_candidate_score.view(-1, 2),
-                                                 (elem_max(batch.entity_labels > 0, batch.trigger_labels > 0)).\
-                                                 type(torch.LongTensor).cuda())
+            trig_loss_start = self.criteria(is_start_pred_ev.view(-1, 2), batch.is_start_ev.view(-1))
 
+            # can use this if set 0-len to not count
+            # gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
 
+            gold_one = batch.is_start_ev == 1
+
+            trig_loss_len = self.criteria(len_from_here_pred_ev[gold_one].view(-1, 2),
+                                            batch.len_from_here_ev[gold_one].view(-1))
+            if type_pred_ev is not None:
+                trig_loss_type = self.criteria(type_pred_ev.view(-1, len(self.vocabs["event"])),
+                                             batch.trigger_labels[batch.trigger_labels > 0])
+            else:
+                trig_loss_type = 0
+            # batch.type_from_here[:].view(-1))
+
+            loss = loss + [trig_loss_start, trig_loss_len, trig_loss_type]
+            loss_names = loss_names + ["trig_start", "trig_len", "trig_type"]
 
         #TODO: also fix for bs > 1
 
@@ -948,11 +1052,11 @@ class LongIE(nn.Module):
 
         if self.config.get("do_coref"):
 
-            mention_pair_ids = get_pairwise_idxs(coref_embeds.shape[1], coref_embeds.shape[1],
+            """mention_pair_ids = get_pairwise_idxs(coref_embeds.shape[1], coref_embeds.shape[1],
                                                  skip_diagonal=True, sep=False)
 
             random_pairs = random.sample(mention_pair_ids, min(len(mention_pair_ids),
-                                                               coref_embeds.shape[1] * 10))
+                                                               coref_embeds.shape[1] * 50))
 
             are_coref = []
 
@@ -975,15 +1079,19 @@ class LongIE(nn.Module):
 
             coref_dim = coref_embeds.shape[-1]
 
-            are_coref_sim = torch.cosine_similarity(are_coref_pairs[:, :coref_dim],
-                                                    are_coref_pairs[:, coref_dim:])
-            are_not_coref_sim = torch.cosine_similarity(are_not_coref_pairs[:, :coref_dim],
-                                                        are_not_coref_pairs[:, coref_dim:])
+            are_coref_dist = torch.norm(are_coref_pairs[:, :coref_dim] -
+                                                    are_coref_pairs[:, coref_dim:], dim=-1)
+            #torch.cosine_similarity(are_coref_pairs[:, :coref_dim],
+            #                                        are_coref_pairs[:, coref_dim:])
+            are_not_coref_dist = torch.norm(are_not_coref_pairs[:, :coref_dim] -
+                                                    are_not_coref_pairs[:, coref_dim:], dim=-1)
+            #torch.cosine_similarity(are_not_coref_pairs[:, :coref_dim],
+            #                                            are_not_coref_pairs[:, coref_dim:])
 
-            coref_loss_attract = - are_coref_sim.mean()
-            coref_loss_repel = are_not_coref_sim.mean()
+            coref_loss_attract = are_coref_dist.mean()
+            coref_loss_repel = torch.clamp(-are_not_coref_dist, min=-3.).mean()"""
 
-            """coref_true_cluster_means = torch_scatter.scatter_mean(coref_embeds, batch.mention_to_ent_coref, dim=1)
+            coref_true_cluster_means = torch_scatter.scatter_mean(coref_embeds, batch.mention_to_ent_coref, dim=1)
 
             coref_true_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
                                                       batch.mention_to_ent_coref.unsqueeze(-1).
@@ -998,14 +1106,14 @@ class LongIE(nn.Module):
                                                       false_clusters.unsqueeze(-1).expand(-1, -1, coref_true_cluster_means.shape[-1]))
 
                 dist_to_false_cluster_center = torch.clamp(
-                    5 - torch.norm(coref_embeds - coref_false_cluster_aligned, dim=-1), min=0) ** 2
+                    5 - torch.norm(coref_embeds - coref_false_cluster_aligned, dim=-1), min=0)
             else:
                 dist_to_false_cluster_center = torch.Tensor([0]).cuda()
 
             dist_to_true_cluster_center = torch.norm(coref_embeds - coref_true_cluster_aligned, dim=-1)
 
             coref_loss_attract = dist_to_true_cluster_center.mean()
-            coref_loss_repel = dist_to_false_cluster_center.mean()"""
+            coref_loss_repel = dist_to_false_cluster_center.mean()
 
             if not torch.isnan(coref_loss_attract):
                 loss.append(coref_loss_attract)
@@ -1016,16 +1124,39 @@ class LongIE(nn.Module):
                 print('Coref loss is NaN')
                 print(batch)
 
-        if self.config.get("classify_triggers"):
-            trigger_loss = self.event_loss(trigger_type.view(-1, len(self.vocabs["event"])),
-                                             batch.trigger_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
+            if self.config.get("classify_triggers"):
 
-            if not torch.isnan(trigger_loss):
-                loss.append(trigger_loss)
-                loss_names.append("trigger")
-            else:
-                print('Trigger loss is NaN')
-                print(batch)
+                coref_true_cluster_means = torch_scatter.scatter_mean(coref_embed_ev, batch.mention_to_ev_coref, dim=1)
+
+                coref_true_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
+                                                          batch.mention_to_ev_coref.unsqueeze(-1).
+                                                          expand(-1, -1, coref_true_cluster_means.shape[-1]))
+
+                total_clusters = batch.mention_to_ev_coref.max() + 1
+                if total_clusters > 1:
+                    random_shift = torch.randint(1, total_clusters, batch.mention_to_ev_coref.shape).cuda()
+                    false_clusters = (batch.mention_to_ev_coref + random_shift) % total_clusters
+
+                    coref_false_cluster_aligned = torch.gather(coref_true_cluster_means, 1,
+                                                               false_clusters.unsqueeze(-1).expand(-1, -1,
+                                                                                                   coref_true_cluster_means.shape[
+                                                                                                       -1]))
+
+                    dist_to_false_cluster_center = torch.clamp(
+                        5 - torch.norm(coref_embed_ev - coref_false_cluster_aligned, dim=-1), min=0)
+                else:
+                    dist_to_false_cluster_center = torch.Tensor([0]).cuda()
+
+                dist_to_true_cluster_center = torch.norm(coref_embed_ev - coref_true_cluster_aligned, dim=-1)
+
+                coref_loss_attract = dist_to_true_cluster_center.mean()
+                coref_loss_repel = dist_to_false_cluster_center.mean()
+
+                loss.append(coref_loss_attract)
+                loss_names.append("trig_coref_attract")
+                loss.append(coref_loss_repel)
+                loss_names.append("trig_coref_repel")
+
 
         if self.config.get("classify_relations") and batch.relation_labels.shape[0] > 0:
 

@@ -393,10 +393,18 @@ from sklearn.cluster import DBSCAN, OPTICS, AgglomerativeClustering
 
 
 def build_information_graph(batch,
+                            #entities
                             is_start,
                             len_from_here,
                             type_pred,
                             cluster_labels,
+                            #trigger
+                            is_start_pred_ev,
+                            len_from_here_pred_ev,
+                            type_pred_ev,
+                            cluster_labels_ev,
+                            coref_embed_ev,
+                            #relation
                             relation_any,
                             relation_cand,
                             relation_true_for_cand,
@@ -475,6 +483,38 @@ def build_information_graph(batch,
 
         entity_num = cur_ent
 
+        triggers = []
+
+        if type_pred_ev is not None:
+
+            cur_ent = 0
+
+            is_start_pred_cur = is_start_pred_ev[graph_idx].argmax(-1).tolist()
+            len_from_here_pred_cur = len_from_here_pred_ev[graph_idx].\
+                view(is_start_pred_ev.shape[1], -1, 2).argmax(-1).tolist()
+
+            cur_clusters = cluster_labels_ev[graph_idx]
+
+            if gold_inputs:
+                is_start_pred_cur = batch.is_start_ev[graph_idx].tolist()
+                len_from_here_pred_cur = batch.len_from_here_ev[graph_idx].tolist()
+
+                cur_clusters = batch.mention_to_ev_coref[graph_idx]
+
+
+            for j in range(is_start.shape[1]):
+                if is_start_pred_cur[j] == 1:
+                    for i in range(len(len_from_here_pred_cur[j])):
+                        if len_from_here_pred_cur[j][i]:
+                            start = j
+                            end = j + i
+                            #type = type_from_here[graph_idx, j].argmax().item()
+                            #why out of bounds???
+                            type = type_pred_ev[graph_idx, cur_ent].argmax().item()
+                            cur_ent += 1
+                            #if type != 0:
+                            triggers.append((start, end, trigger_itos[type]))
+
         relations = []
 
         if relation_pred is not None:
@@ -518,7 +558,7 @@ def build_information_graph(batch,
 
 
 
-        cur_graph = Graph(entities, [], relations, [], coref_matrix, cluster_labels[graph_idx].tolist())
+        cur_graph = Graph(entities, triggers, relations, [], coref_matrix, cluster_labels[graph_idx].tolist())
 
         if relation_pred is not None:
             cur_graph.rel_probs = nonzero_final_probs
@@ -648,6 +688,43 @@ def summary_graph(pred_graph, true_graph, batch,
 
     writer.add_text(prefix + "predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix + "not_predicted", " ".join(str(not_predicted)), global_step)
+
+    ###triggers
+
+    rev_pos_offsets = dict()
+
+    for i in range(len(batch.pos_trigger_offsets[0])):
+        rev_pos_offsets[batch.pos_trigger_offsets[0][i]] = i
+
+    predicted_triggers = []
+    pred_to_true_ev = []
+    for (s, e, t) in pred_graph.triggers:
+        if (s, e) in rev_pos_offsets:
+            pred_to_true_ev.append(rev_pos_offsets[(s, e)])
+        else:
+            pred_to_true_ev.append(-1)
+        predicted_triggers.append(("|".join(tokens[s:e]), t, s, e, pred_to_true_ev[-1]))
+
+    true_triggers = []
+    for i, (s, e, t) in enumerate(true_graph.triggers):
+        true_triggers.append(("|".join(tokens[s:e]), t, s, e, i))
+
+    writer.add_text(prefix + "predicted_triggers", " ".join(str(predicted_triggers)), global_step)
+    writer.add_text(prefix + "true_triggers", " ".join(str(true_triggers)), global_step)
+    writer.add_text(prefix + "full_text", "|".join(tokens), global_step)
+
+    predicted_trig_set = set(predicted_triggers)
+
+    true_trig_set = set(true_triggers)
+
+    predicted_false = predicted_trig_set - true_trig_set
+
+    not_predicted = true_trig_set - predicted_trig_set
+
+    writer.add_text(prefix + "predicted_false_trig", " ".join(str(predicted_false)), global_step)
+    writer.add_text(prefix + "not_predicted_trig", " ".join(str(not_predicted)), global_step)
+
+    ###
 
     all_cols = list(mcolors.TABLEAU_COLORS) + list(mcolors.BASE_COLORS)
 

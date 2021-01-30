@@ -69,9 +69,13 @@ class Batch:
     token_embed_ids: List[List[int]]
     entities_coref: List[Dict]
     mention_to_ent_coref: List[List[int]]
+    mention_to_ev_coref: List[List[int]]
     is_start: torch.LongTensor
     len_from_here: torch.LongTensor
     type_from_here: torch.LongTensor
+    is_start_ev: torch.LongTensor
+    len_from_here_ev: torch.LongTensor
+    type_from_here_ev: torch.LongTensor
     sent_nums: torch.LongTensor
 
     @property
@@ -1030,6 +1034,13 @@ class IEDataset(Dataset):
         len_from_here = []
         type_from_here = []
 
+        is_start_ev = []
+        len_from_here_ev = []
+        type_from_here_ev = []
+
+        events_coref = []
+        mention_to_ev_coref = []
+
         sent_nums = []
 
         for inst in batch:
@@ -1128,6 +1139,11 @@ class IEDataset(Dataset):
             inst_pos_trigger_offsets = []
             inst_pos_event_uids = []
             inst_trigger_span_mask = []
+
+            inst_is_start_ev = [0 for i in range(inst['token_num'])]
+            inst_len_from_here_ev = [[0 for j in range(max_entity_len)] for i in range(inst['token_num'])]
+            inst_type_from_here_ev = [0 for i in range(inst['token_num'])]
+
             for offset_idx, (start, end) in enumerate(trigger_offsets):
                 if end > inst['token_num']:
                     trigger_labels.append(-100)
@@ -1143,12 +1159,23 @@ class IEDataset(Dataset):
                         id_trigger_labels.append(inst['event_labels'][(start, end)])
                         # Gold labels to GNN
                         inst_trigger_labels_sep.append(inst['event_labels'][(start, end)])
+
+                        inst_is_start_ev[start] = 1
+                        inst_len_from_here_ev[start][end - start] = 1
+                        inst_type_from_here_ev[start] = inst['event_labels'][(start, end)]
+
                     inst_trigger_span_mask.append(1)
+
+
             inst_pos_trigger_idxs += [0] * (max_event_num - inst['event_num'])
             pos_trigger_idxs.append(inst_pos_trigger_idxs)
             pos_trigger_offsets.append(inst_pos_trigger_offsets)
             trigger_span_mask.append(inst_trigger_span_mask)
             trigger_labels_sep.append(inst_trigger_labels_sep)
+
+            is_start_ev.append(inst_is_start_ev)
+            len_from_here_ev.append(inst_len_from_here_ev)
+            type_from_here_ev.append(inst_type_from_here_ev)
 
             # Relation labels
 
@@ -1180,6 +1207,21 @@ class IEDataset(Dataset):
             coref_labels.append(inst_coref_labels)
             entities_coref.append(inst_entities_coref)
             mention_to_ent_coref.append(inst_mention_to_ent_coref)
+
+            inst_events_coref = dict()
+            inst_mention_to_ev_coref = []
+
+            event_num = len(inst['events'])
+
+            for a in range(event_num):
+                cur_ev = inst['events'][a].event_id
+                #mention_id_dict[inst['entities'][a].mention_id] = a
+                if cur_ev not in inst_events_coref:
+                    inst_events_coref[cur_ev] = len(inst_events_coref)
+                inst_mention_to_ev_coref.append(inst_events_coref[cur_ev])
+
+            mention_to_ev_coref.append(inst_mention_to_ev_coref)
+            events_coref.append(inst_events_coref)
 
             inst['graph'].coref_matrix = inst_coref_labels
             inst['graph'].cluster_labels = inst_mention_to_ent_coref
@@ -1259,9 +1301,15 @@ class IEDataset(Dataset):
 
             mention_to_ent_coref = torch.cuda.LongTensor(mention_to_ent_coref)
 
+            mention_to_ev_coref = torch.cuda.LongTensor(mention_to_ev_coref)
+
             is_start = torch.cuda.LongTensor(is_start)
             len_from_here = torch.cuda.LongTensor(len_from_here)
             type_from_here = torch.cuda.LongTensor(type_from_here)
+
+            is_start_ev = torch.cuda.LongTensor(is_start_ev)
+            len_from_here_ev = torch.cuda.LongTensor(len_from_here_ev)
+            type_from_here_ev = torch.cuda.LongTensor(type_from_here_ev)
 
             sent_nums = torch.cuda.LongTensor(sent_nums)
         else:
@@ -1346,8 +1394,12 @@ class IEDataset(Dataset):
             coref_labels=coref_labels,
             entities_coref=entities_coref,
             mention_to_ent_coref=mention_to_ent_coref,
+            mention_to_ev_coref=mention_to_ev_coref,
             is_start=is_start,
             len_from_here=len_from_here,
             type_from_here=type_from_here,
+            is_start_ev=is_start_ev,
+            len_from_here_ev=len_from_here_ev,
+            type_from_here_ev=type_from_here_ev,
             sent_nums=sent_nums,
         )
