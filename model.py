@@ -583,19 +583,24 @@ class LongIE(nn.Module):
 
                 max_ev = batch.len_from_here_ev[batch.is_start_ev == 1].sum()
 
-                trigger_spans = torch.zeros(batch_size, max_ev, self.entity_dim).cuda()
+                if max_ev == 0:
+                    trigger_spans = None
 
-                for b in range(batch_size):
-                    for i in range(max_ev):
-                        l, r = batch.pos_trigger_offsets[b][i]
+                else:
 
-                        #entity_span_list.append((l, r))
-                        if self.config.get("use_sent_context"):
-                            trigger_spans[b, i] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
-                                                            sent_context[b, batch.sent_nums[b, l]]),
-                                                           dim=-1)
-                        else:
-                            trigger_spans[b, i] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
+                    trigger_spans = torch.zeros(batch_size, max_ev, self.entity_dim).cuda()
+
+                    for b in range(batch_size):
+                        for i in range(max_ev):
+                            l, r = batch.pos_trigger_offsets[b][i]
+
+                            #entity_span_list.append((l, r))
+                            if self.config.get("use_sent_context"):
+                                trigger_spans[b, i] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
+                                                                sent_context[b, batch.sent_nums[b, l]]),
+                                                               dim=-1)
+                            else:
+                                trigger_spans[b, i] = torch.max(encoder_outputs[b, l:r], dim=0)[0]
 
         else:
 
