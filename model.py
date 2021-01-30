@@ -1129,7 +1129,7 @@ class LongIE(nn.Module):
                 print('Coref loss is NaN')
                 print(batch)
 
-            if self.config.get("classify_triggers"):
+            if self.config.get("classify_triggers") and coref_embed_ev is not None:
 
                 coref_true_cluster_means = torch_scatter.scatter_mean(coref_embed_ev, batch.mention_to_ev_coref, dim=1)
 
