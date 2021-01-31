@@ -1225,6 +1225,7 @@ class IEDataset(Dataset):
 
             inst['graph'].coref_matrix = inst_coref_labels
             inst['graph'].cluster_labels = inst_mention_to_ent_coref
+            inst['graph'].cluster_labels_ev = inst_mention_to_ev_coref
 
             inst_relation_labels_cl, relations_cl = self.get_relation_labels_for_clusters(inst['relations'],
                                                                           inst_mention_to_ent_coref,

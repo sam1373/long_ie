@@ -485,6 +485,11 @@ def build_information_graph(batch,
 
         triggers = []
 
+        if cluster_labels_ev is None:
+            cur_cluster_labels_ev = []
+        else:
+            cur_cluster_labels_ev = cluster_labels_ev[graph_idx].tolist()
+
         if type_pred_ev is not None:
 
             cur_ent = 0
@@ -558,7 +563,8 @@ def build_information_graph(batch,
 
 
 
-        cur_graph = Graph(entities, triggers, relations, [], coref_matrix, cluster_labels[graph_idx].tolist())
+        cur_graph = Graph(entities, triggers, relations, [], coref_matrix,
+                          cluster_labels[graph_idx].tolist(), cur_cluster_labels_ev)
 
         if relation_pred is not None:
             cur_graph.rel_probs = nonzero_final_probs
@@ -613,7 +619,7 @@ def get_coref_clusters(coref_matrix):
 
 def clusters_from_cluster_labels(cluster_labels):
 
-    num_clusters = max(cluster_labels) + 1
+    num_clusters = max(cluster_labels, default=-1) + 1
     clusters = [[] for i in range(num_clusters)]
 
     for i, cl in enumerate(cluster_labels):
