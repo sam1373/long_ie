@@ -962,6 +962,8 @@ class LongIE(nn.Module):
 
         else:
             coref_embed = None
+            cluster_labels_ev = None
+            coref_embed_ev = None
 
         type_pred = self.type_clf(entity_spans)
 

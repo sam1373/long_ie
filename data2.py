@@ -944,11 +944,13 @@ class IEDataset(Dataset):
 
         entities_ = [(entity.start, entity.end, entity.get_type(entity_type_level))
                     for entity in entities]
-        entity_uids = {entity.uid: idx
-                       for idx, entity in enumerate(entities)}
         triggers = [(event.trigger.start, event.trigger.end,
                      event.get_type(event_type_level))
                     for event in events]
+        entities_ = list(sorted(entities_))
+        triggers = list(sorted(triggers))
+        entity_uids = {entity.uid: idx
+                       for idx, entity in enumerate(entities)}
         event_uids = {event.uid: idx
                       for idx, event in enumerate(events)}
 

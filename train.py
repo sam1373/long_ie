@@ -393,7 +393,7 @@ for epoch in range(epoch_num):
 
             pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
 
-            if len(batch.tokens[0]) < 400 and batch_idx < 10:
+            if len(batch.tokens[0]) < 400 and batch_idx < 20:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs, None, id=batch_idx)
 
@@ -404,7 +404,7 @@ for epoch in range(epoch_num):
 
             pred_dev_gold_input_graphs.extend(pred_gold_input_graphs)
 
-            if len(batch.tokens[0]) < 400 and batch_idx < 10:
+            if len(batch.tokens[0]) < 400 and batch_idx < 20:
                 summary_graph(pred_gold_input_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_gi_", vocabs, None, id=batch_idx)
 

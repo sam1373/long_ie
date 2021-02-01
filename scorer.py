@@ -150,51 +150,53 @@ def score_graphs(gold_graphs, pred_graphs,
                 men_match_num += len([mention for mention in pred_mentions
                                       if mention in gold_mentions])"""
 
-        if gold_inputs:
-            alignment = list(range(len(gold_entities)))
-        else:
-            alignment = align_pred_to_gold(gold_entities, pred_entities)
+        if pred_graph.cluster_labels is not None:
 
-        not_predicted_idx = set(range(len(gold_entities))) - set(alignment)
+            if gold_inputs:
+                alignment = list(range(len(gold_entities)))
+            else:
+                alignment = align_pred_to_gold(gold_entities, pred_entities)
 
-        max_pred_ent = max(alignment)
+            not_predicted_idx = set(range(len(gold_entities))) - set(alignment)
+
+            max_pred_ent = max(alignment)
 
 
 
-        pred_cluster_labels = pred_graph.cluster_labels
-        pred_clusters = clusters_from_cluster_labels(pred_cluster_labels)
-        gold_cluster_labels = gold_graph.cluster_labels
-        gold_clusters = clusters_from_cluster_labels(gold_cluster_labels)
+            pred_cluster_labels = pred_graph.cluster_labels
+            pred_clusters = clusters_from_cluster_labels(pred_cluster_labels)
+            gold_cluster_labels = gold_graph.cluster_labels
+            gold_clusters = clusters_from_cluster_labels(gold_cluster_labels)
 
-        pred_clusters_ment_aligned = [list(map(lambda x: alignment[x], c)) for c in pred_clusters]
+            pred_clusters_ment_aligned = [list(map(lambda x: alignment[x], c)) for c in pred_clusters]
 
-        pred_clusters_aligned = []
+            pred_clusters_aligned = []
 
-        num_matched = 0
+            num_matched = 0
 
-        for p_cl in pred_clusters_ment_aligned:
-            found = False
-            for g_id, g_cl in enumerate(gold_clusters):
-                matched = set(p_cl).intersection(set(g_cl))
-                if len(matched) > len(p_cl) // 2 and len(matched) > len(g_cl) // 2:
-                    pred_clusters_aligned.append(g_id)
-                    found = True
-                    num_matched += 1
-                    break
-            if not found:
-                pred_clusters_aligned.append(-1)
+            for p_cl in pred_clusters_ment_aligned:
+                found = False
+                for g_id, g_cl in enumerate(gold_clusters):
+                    matched = set(p_cl).intersection(set(g_cl))
+                    if len(matched) > len(p_cl) // 2 and len(matched) > len(g_cl) // 2:
+                        pred_clusters_aligned.append(g_id)
+                        found = True
+                        num_matched += 1
+                        break
+                if not found:
+                    pred_clusters_aligned.append(-1)
 
-        matched_p += num_matched / len(pred_clusters)
-        matched_r += num_matched / len(gold_clusters)
+            matched_p += num_matched / len(pred_clusters)
+            matched_r += num_matched / len(gold_clusters)
 
-        if gold_inputs:
-            pred_clusters_aligned = list(range(len(gold_clusters)))
+            if gold_inputs:
+                pred_clusters_aligned = list(range(len(gold_clusters)))
 
-        r, p, f = b_cubed_modified(gold_clusters, pred_clusters_ment_aligned, len(gold_entities), max_pred_ent,
-                                   not_predicted_idx)
+            r, p, f = b_cubed_modified(gold_clusters, pred_clusters_ment_aligned, len(gold_entities), max_pred_ent,
+                                       not_predicted_idx)
 
-        cluster_p += p
-        cluster_r += r
+            cluster_p += p
+            cluster_r += r
 
         # Relation
         gold_relations = gold_graph.relations
@@ -262,47 +264,49 @@ def score_graphs(gold_graphs, pred_graphs,
 
         #max_pred_ev = max(alignment)
 
-        pred_cluster_labels = pred_graph.cluster_labels_ev
-        pred_clusters = clusters_from_cluster_labels(pred_cluster_labels)
-        gold_cluster_labels = gold_graph.cluster_labels_ev
-        gold_clusters = clusters_from_cluster_labels(gold_cluster_labels)
+        if pred_graph.cluster_labels_ev is not None:
 
-        pred_clusters_ment_aligned = [list(map(lambda x: alignment[x], c)) for c in pred_clusters]
+            pred_cluster_labels = pred_graph.cluster_labels_ev
+            pred_clusters = clusters_from_cluster_labels(pred_cluster_labels)
+            gold_cluster_labels = gold_graph.cluster_labels_ev
+            gold_clusters = clusters_from_cluster_labels(gold_cluster_labels)
 
-        pred_clusters_aligned = []
+            pred_clusters_ment_aligned = [list(map(lambda x: alignment[x], c)) for c in pred_clusters]
 
-        num_matched = 0
+            pred_clusters_aligned = []
 
-        for p_cl in pred_clusters_ment_aligned:
-            found = False
-            for g_id, g_cl in enumerate(gold_clusters):
-                matched = set(p_cl).intersection(set(g_cl))
-                if len(matched) > len(p_cl) // 2 and len(matched) > len(g_cl) // 2:
-                    pred_clusters_aligned.append(g_id)
-                    found = True
-                    num_matched += 1
-                    break
-            if not found:
-                pred_clusters_aligned.append(-1)
+            num_matched = 0
 
-        if len(gold_clusters) == 0:
-            t_matched_r += 1
-        else:
-            t_matched_r += num_matched / len(gold_clusters)
+            for p_cl in pred_clusters_ment_aligned:
+                found = False
+                for g_id, g_cl in enumerate(gold_clusters):
+                    matched = set(p_cl).intersection(set(g_cl))
+                    if len(matched) > len(p_cl) // 2 and len(matched) > len(g_cl) // 2:
+                        pred_clusters_aligned.append(g_id)
+                        found = True
+                        num_matched += 1
+                        break
+                if not found:
+                    pred_clusters_aligned.append(-1)
 
-        if len(pred_clusters) == 0:
-            t_matched_p += 1
-        else:
-            t_matched_p += num_matched / len(pred_clusters)
+            if len(gold_clusters) == 0:
+                t_matched_r += 1
+            else:
+                t_matched_r += num_matched / len(gold_clusters)
 
-        #if gold_inputs:
-        #    pred_clusters_aligned = list(range(len(gold_clusters)))
+            if len(pred_clusters) == 0:
+                t_matched_p += 1
+            else:
+                t_matched_p += num_matched / len(pred_clusters)
 
-        r, p, f = b_cubed_modified(gold_clusters, pred_clusters_ment_aligned, len(gold_entities), max_pred_ent,
-                                   not_predicted_idx)
+            #if gold_inputs:
+            #    pred_clusters_aligned = list(range(len(gold_clusters)))
 
-        t_cluster_p += p
-        t_cluster_r += r
+            r, p, f = b_cubed_modified(gold_clusters, pred_clusters_ment_aligned, len(gold_entities), max_pred_ent,
+                                       not_predicted_idx)
+
+            t_cluster_p += p
+            t_cluster_r += r
 
         # Argument
         gold_args = convert_arguments(gold_triggers, gold_entities,

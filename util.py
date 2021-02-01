@@ -460,7 +460,10 @@ def build_information_graph(batch,
         is_start_pred_cur = is_start[graph_idx].argmax(-1).tolist()
         len_from_here_pred_cur = len_from_here[graph_idx].view(is_start.shape[1], -1, 2).argmax(-1).tolist()
 
-        cur_clusters = cluster_labels[graph_idx]
+        cur_clusters = None
+
+        if cluster_labels is not None:
+            cur_clusters = cluster_labels[graph_idx]
 
         if gold_inputs:
             is_start_pred_cur = batch.is_start[graph_idx].tolist()
@@ -486,7 +489,7 @@ def build_information_graph(batch,
         triggers = []
 
         if cluster_labels_ev is None:
-            cur_cluster_labels_ev = []
+            cur_cluster_labels_ev = None
         else:
             cur_cluster_labels_ev = cluster_labels_ev[graph_idx].tolist()
 
@@ -498,13 +501,13 @@ def build_information_graph(batch,
             len_from_here_pred_cur = len_from_here_pred_ev[graph_idx].\
                 view(is_start_pred_ev.shape[1], -1, 2).argmax(-1).tolist()
 
-            cur_clusters = cluster_labels_ev[graph_idx]
+            #cur_clusters = cluster_labels_ev[graph_idx]
 
             if gold_inputs:
                 is_start_pred_cur = batch.is_start_ev[graph_idx].tolist()
                 len_from_here_pred_cur = batch.len_from_here_ev[graph_idx].tolist()
 
-                cur_clusters = batch.mention_to_ev_coref[graph_idx]
+                cur_cluster_labels_ev = batch.mention_to_ev_coref[graph_idx]
 
 
             for j in range(is_start.shape[1]):
@@ -564,7 +567,7 @@ def build_information_graph(batch,
 
 
         cur_graph = Graph(entities, triggers, relations, [], coref_matrix,
-                          cluster_labels[graph_idx].tolist(), cur_cluster_labels_ev)
+                          cur_clusters, cur_cluster_labels_ev)
 
         if relation_pred is not None:
             cur_graph.rel_probs = nonzero_final_probs
@@ -1101,11 +1104,11 @@ def summary_graph(pred_graph, true_graph, batch,
     writer.add_text(prefix + "rels_predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix + "rels_not_predicted", " ".join(str(not_predicted)), global_step)"""
 
-    draw_network(true_entities, true_clusters, true_graph.relations,
-                 writer, prefix + "true", global_step, id)
+    #draw_network(true_entities, true_clusters, true_graph.relations,
+    #             writer, prefix + "true", global_step, id)
 
-    draw_network(predicted_entities, pred_clusters, pred_graph.relations,
-                 writer, prefix + "pred", global_step, id)
+    #draw_network(predicted_entities, pred_clusters, pred_graph.relations,
+    #             writer, prefix + "pred", global_step, id)
 
     plt.close('all')
 
