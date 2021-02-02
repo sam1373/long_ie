@@ -259,7 +259,9 @@ class LongIE(nn.Module):
         self.entity_importance_weight = ResidLinear(self.entity_dim, 1)"""
 
         self.mention_aggr = ResidLinear(token_initial_dim, have_final=False)
-        self.entity_aggr = ResidLinear(self.entity_dim, have_final=False)
+
+        self.entity_aggr_lin = ResidLinear(self.entity_dim, have_final=False)
+        self.trigger_aggr_lin = ResidLinear(self.entity_dim, have_final=False)
 
         #self.conv_aggr = nn.Conv1d()
 
@@ -703,7 +705,7 @@ class LongIE(nn.Module):
 
         if self.config.get("do_coref"):
 
-            coref_embed = self.coref_embed(entity_spans)
+            coref_embed = self.coref_embed(entity_spans.detach())
 
             if predict:
 
@@ -739,7 +741,7 @@ class LongIE(nn.Module):
 
             if self.config.get("classify_triggers") and trigger_spans is not None:
 
-                coref_embed_ev = self.coref_embed(trigger_spans)
+                coref_embed_ev = self.coref_embed(trigger_spans.detach())
 
                 if predict:
 
@@ -793,14 +795,14 @@ class LongIE(nn.Module):
             #attention_mask = torch.zeros(ent_span_lists.shape).cuda()
             #attention_mask[:, 0] = 1.
 
-            #entity_spans_for_aggr = self.entity_aggr(entity_spans)
+            entity_spans_for_aggr = self.entity_aggr_lin(entity_spans)
 
             entity_aggr = torch.zeros(batch_size, cluster_num, entity_spans.shape[-1]).cuda()
 
 
             for b in range(batch_size):
                 for i in range(cluster_num):
-                    entity_spans_cluster = entity_spans[b][cluster_labels[b] == i]
+                    entity_spans_cluster = entity_spans_for_aggr[b][cluster_labels[b] == i]
 
                     entity_aggr[b, i] = torch.max(entity_spans_cluster, dim=0)[0]
 
@@ -943,9 +945,11 @@ class LongIE(nn.Module):
 
                 trig_aggr = torch.zeros(batch_size, cluster_num_ev, trigger_spans.shape[-1]).cuda()
 
+                trig_spans_for_aggr = self.trigger_aggr_lin(trigger_spans)
+
                 for b in range(batch_size):
                     for i in range(cluster_num_ev):
-                        trigger_spans_cluster = trigger_spans[b][cluster_labels_ev[b] == i]
+                        trigger_spans_cluster = trig_spans_for_aggr[b][cluster_labels_ev[b] == i]
 
                         trig_aggr[b, i] = torch.max(trigger_spans_cluster, dim=0)[0]
 
