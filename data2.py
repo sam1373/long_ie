@@ -602,6 +602,10 @@ class IEDataset(Dataset):
                 continue
             processed_entities.append(entity)
 
+        #fix ordering?
+        #could mess something up?
+        #processed_entities = sorted(processed_entities, key = lambda x : (entity.start, entity.end))
+
         sentence.update_entities(processed_entities)
 
     def process_relations(self,
@@ -621,10 +625,14 @@ class IEDataset(Dataset):
                        sentence: Sentence):
         events = sentence.events
         processed_events = []
+        type_dict = dict()
         for event in events:
             arguments = [arg for arg in event.arguments
                          if sentence.has_entity(arg.entity_id, arg.mention_id)]
             event.arguments = arguments
+            if event.event_id not in type_dict:
+                type_dict[event.event_id] = event.event_type
+            event.event_type = type_dict[event.event_id]
             processed_events.append(event)
         sentence.update_events(processed_events)
 
@@ -875,6 +883,7 @@ class IEDataset(Dataset):
             relations_cl_set.add((c_i, c_j, relation.get_type(relation_type_level)))
 
         relations_cl = list(relations_cl_set)
+
 
         return labels, relations_cl
 
@@ -1191,11 +1200,16 @@ class IEDataset(Dataset):
 
             mention_id_dict = dict()
 
+            ent_to_first_mention = dict()
+
             for a in range(entity_num):
                 cur_ent = inst['entities'][a].entity_id
                 mention_id_dict[inst['entities'][a].mention_id] = a
+
                 if cur_ent not in inst_entities_coref:
                     inst_entities_coref[cur_ent] = len(inst_entities_coref)
+                    ent_to_first_mention[inst_entities_coref[cur_ent]] = a
+
                 inst_mention_to_ent_coref.append(inst_entities_coref[cur_ent])
 
                 inst_coref_labels[a][a] = 1
@@ -1235,7 +1249,24 @@ class IEDataset(Dataset):
 
             inst['graph'].relations = relations_cl
 
+            ###
 
+            coref_cluster_lists_txt = [[] for i in range(1 + max(inst_entities_coref.values()))]
+
+            for i in range(entity_num):
+                coref_cluster_lists_txt[inst_mention_to_ent_coref[i]].append(inst['entities'][i].text)
+
+            ###
+
+            print(coref_cluster_lists_txt)
+
+            for (cl_1, cl_2, t) in relations_cl:
+                em_1 = inst['entities'][ent_to_first_mention[cl_1]].text
+                em_2 = inst['entities'][ent_to_first_mention[cl_2]].text
+
+                print(em_1, "-", em_2, ":", t)
+
+            #input()
 
             """inst_relation_labels = self.get_relation_labels(inst['relations'],
                                                                         inst['entities'],

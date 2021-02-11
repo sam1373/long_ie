@@ -298,8 +298,8 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
-            #if args.debug and batch_idx == 10:
-            #    break
+            if args.debug and batch_idx == 10:
+                break
 
             loss, train_loss_names = model(batch, epoch=epoch)
             # print(loss)

@@ -648,6 +648,7 @@ def align_pred_to_gold(true_entities, pred_entities):
 
     return alignment
 
+
 import matplotlib.pyplot as plt
 import numpy as np
 from highlight_text import ax_text, fig_text
@@ -1104,11 +1105,11 @@ def summary_graph(pred_graph, true_graph, batch,
     writer.add_text(prefix + "rels_predicted_false", " ".join(str(predicted_false)), global_step)
     writer.add_text(prefix + "rels_not_predicted", " ".join(str(not_predicted)), global_step)"""
 
-    #draw_network(true_entities, true_clusters, true_graph.relations,
-    #             writer, prefix + "true", global_step, id)
+    draw_network(true_entities, true_clusters, true_graph.relations,
+                 writer, prefix + "true", global_step, id)
 
-    #draw_network(predicted_entities, pred_clusters, pred_graph.relations,
-    #             writer, prefix + "pred", global_step, id)
+    draw_network(predicted_entities, pred_clusters, pred_graph.relations,
+                 writer, prefix + "pred", global_step, id)
 
     plt.close('all')
 

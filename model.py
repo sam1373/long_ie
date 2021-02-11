@@ -453,45 +453,6 @@ class LongIE(nn.Module):
 
 
 
-    def calculate_loss(self,
-                       scores: List[List[Dict[str, torch.Tensor]]],
-                       target: torch.Tensor,
-                       key: str,
-                       last_only: bool = True):
-        # Concatenate scores
-        # layer_num = len(scores[0])
-        # if last_only:
-        # scores = [graph_scores[-1][key] for graph_scores in scores if key in graph_scores[-1]]
-        # else:
-        #     # TODO: check the calculation
-        #     scores = [graph_scores[layer][key]
-        #               for layer in range(layer_num)
-        #               for graph_scores in scores
-        #               if key in graph_scores[layer]]
-        # scores = torch.cat(scores, dim=0)
-        # Repeat the target labels based on the GNN layer number
-        # if not last_only:
-
-        if last_only:
-            scores_ = []
-            for graph_idx, graph_scores in enumerate(scores):
-                graph_last_scores = graph_scores[-1]
-                if key in graph_last_scores:
-                    scores_.append(graph_last_scores[key])
-            scores_ = torch.cat(scores_, dim=0)
-            return self.criteria(scores_, target)
-        else:
-            layer_num = len(scores[0])
-            scores_ = []
-            for layer_idx in range(layer_num):
-                for graph_scores in scores:
-                    layer_scores= graph_scores[layer_idx]
-                    if key in layer_scores:
-                        scores_.append(layer_scores[key])
-            scores_ = torch.cat(scores_, dim=0)
-            target_ = target.repeat(layer_num)
-            return self.criteria(scores_, target_)
-
     def forward_nn(self, batch: Batch, predict: bool = False, epoch=0):
         # Run the encoder to get contextualized word representations
 
