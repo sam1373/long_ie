@@ -291,8 +291,8 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = nn.Transformer(num_encoder_layers = 1,
-                                              num_decoder_layers = 3,
+        self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
+                                              num_decoder_layers = 6,
                                               d_model=comp_dim * 2,
                                               nhead=4)
 
@@ -453,7 +453,7 @@ class LongIE(nn.Module):
 
 
 
-    def forward_nn(self, batch: Batch, predict: bool = False, epoch=0):
+    def forward_nn(self, batch: Batch, predict: bool = False, epoch=0, gold_inputs=False):
         # Run the encoder to get contextualized word representations
 
         #print(batch.graphs[0].entities)
@@ -809,6 +809,11 @@ class LongIE(nn.Module):
                 if not predict:
                     relation_cand = elem_max((relation_any.argmax(-1) == 1),
                                          (batch.relation_labels.view(batch_size, -1) > 0))
+
+                    if not gold_inputs:
+                        relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.9
+                        relation_cand[relation_cand_neg_sample_mask] = 1
+
                 else:
                     relation_cand = (relation_any.argmax(-1) == 1)
 
@@ -817,7 +822,8 @@ class LongIE(nn.Module):
                     #negative relation sampling
                     relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.9
                     relation_cand[relation_cand_neg_sample_mask] = 1
-                    #doesn't work because relation_any is unchanged?
+                    #//doesn't work because relation_any is unchanged?
+                    #should work now
                     #..."""
 
                 total_rel_cand = relation_cand.sum()
@@ -885,8 +891,8 @@ class LongIE(nn.Module):
 
                     encoder_comp = self.rel_context_project(encoder_outputs)
 
-                    relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
-                                                               relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
+                    #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
+                    #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
 
@@ -1210,7 +1216,7 @@ class LongIE(nn.Module):
     def predict(self, batch: Batch, epoch=0, gold_inputs=False):
         self.eval()
         with torch.no_grad():
-            result = self.forward_nn(batch, predict=(not gold_inputs), epoch=epoch)
+            result = self.forward_nn(batch, predict=(not gold_inputs), epoch=epoch, gold_inputs=gold_inputs)
 
         self.train()
         return result

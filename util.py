@@ -15,6 +15,7 @@ from collections import defaultdict
 
 import torch.nn.functional as F
 
+
 def argmax(lst):
     max_idx = -1
     max_value = -100000
@@ -85,8 +86,8 @@ def generate_vocabs(datasets, coref=False,
         'relation': relation_type_stoi,
         'role': role_type_stoi,
         'mention': mention_type_stoi,
-        #'entity_label': entity_label_stoi,
-        #'trigger_label': trigger_label_stoi,
+        # 'entity_label': entity_label_stoi,
+        # 'trigger_label': trigger_label_stoi,
     }
 
 
@@ -387,24 +388,22 @@ def label2onehot(tensor: torch.Tensor, label_size: int):
     return tensor_onehot
 
 
-
-
 from sklearn.cluster import DBSCAN, OPTICS, AgglomerativeClustering
 
 
 def build_information_graph(batch,
-                            #entities
+                            # entities
                             is_start,
                             len_from_here,
                             type_pred,
                             cluster_labels,
-                            #trigger
+                            # trigger
                             is_start_pred_ev,
                             len_from_here_pred_ev,
                             type_pred_ev,
                             cluster_labels_ev,
                             coref_embed_ev,
-                            #relation
+                            # relation
                             relation_any,
                             relation_cand,
                             relation_true_for_cand,
@@ -418,25 +417,22 @@ def build_information_graph(batch,
     relation_itos = {i: s for s, i in vocabs['relation'].items()}
     role_itos = {i: s for s, i in vocabs['role'].items()}
 
-
     graphs = []
     for graph_idx in range(batch.batch_size):
 
-        #coref_preds = None
-        #TODO remove from here
+        # coref_preds = None
+        # TODO remove from here
         coref_matrix = None
         if coref_embeds is not None:
             coref_embeds_cur = coref_embeds[graph_idx].cpu().numpy()
 
-            #coref_matrix = np.linalg.norm(coref_embeds_cur[:, None, :] - coref_embeds_cur[None, :, :], axis=-1)
+            # coref_matrix = np.linalg.norm(coref_embeds_cur[:, None, :] - coref_embeds_cur[None, :, :], axis=-1)
 
             ##clustering = AgglomerativeClustering(distance_threshold=1., n_clusters=None).fit(coref_embeds_cur)
-            #clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
-            #clustering = DBSCAN(min_samples=2).fit(coref_embeds_cur)
+            # clustering = OPTICS(min_samples=2).fit(coref_embeds_cur)
+            # clustering = DBSCAN(min_samples=2).fit(coref_embeds_cur)
 
-
-
-            #coref_preds = []
+            # coref_preds = []
             coref_matrix = []
 
             for i in range(coref_embeds_cur.shape[0]):
@@ -445,11 +441,12 @@ def build_information_graph(batch,
 
                     if i == j:
                         new_l.append(1)
-                    elif cluster_labels[graph_idx, i] == cluster_labels[graph_idx, j] and cluster_labels[graph_idx, i] != -1:
-                        #coref_preds.append(1)
+                    elif cluster_labels[graph_idx, i] == cluster_labels[graph_idx, j] and cluster_labels[
+                        graph_idx, i] != -1:
+                        # coref_preds.append(1)
                         new_l.append(1)
                     else:
-                        #coref_preds.append(0)
+                        # coref_preds.append(0)
                         new_l.append(0)
                 coref_matrix.append(new_l)
 
@@ -471,17 +468,16 @@ def build_information_graph(batch,
 
             cur_clusters = batch.mention_to_ent_coref[graph_idx]
 
-
         for j in range(is_start.shape[1]):
             if is_start_pred_cur[j] == 1:
                 for i in range(len(len_from_here_pred_cur[j])):
                     if len_from_here_pred_cur[j][i]:
                         start = j
                         end = j + i
-                        #type = type_from_here[graph_idx, j].argmax().item()
+                        # type = type_from_here[graph_idx, j].argmax().item()
                         type = type_pred[graph_idx, cur_ent].argmax().item()
                         cur_ent += 1
-                        #if type != 0:
+                        # if type != 0:
                         entities.append((start, end, entity_itos[type]))
 
         entity_num = cur_ent
@@ -498,10 +494,10 @@ def build_information_graph(batch,
             cur_ent = 0
 
             is_start_pred_cur = is_start_pred_ev[graph_idx].argmax(-1).tolist()
-            len_from_here_pred_cur = len_from_here_pred_ev[graph_idx].\
+            len_from_here_pred_cur = len_from_here_pred_ev[graph_idx]. \
                 view(is_start_pred_ev.shape[1], -1, 2).argmax(-1).tolist()
 
-            #cur_clusters = cluster_labels_ev[graph_idx]
+            # cur_clusters = cluster_labels_ev[graph_idx]
 
             if gold_inputs:
                 is_start_pred_cur = batch.is_start_ev[graph_idx].tolist()
@@ -509,18 +505,17 @@ def build_information_graph(batch,
 
                 cur_cluster_labels_ev = batch.mention_to_ev_coref[graph_idx]
 
-
             for j in range(is_start.shape[1]):
                 if is_start_pred_cur[j] == 1:
                     for i in range(len(len_from_here_pred_cur[j])):
                         if len_from_here_pred_cur[j][i]:
                             start = j
                             end = j + i
-                            #type = type_from_here[graph_idx, j].argmax().item()
-                            #why out of bounds???
+                            # type = type_from_here[graph_idx, j].argmax().item()
+                            # why out of bounds???
                             type = type_pred_ev[graph_idx, cur_ent].argmax().item()
                             cur_ent += 1
-                            #if type != 0:
+                            # if type != 0:
                             triggers.append((start, end, trigger_itos[type]))
 
         relations = []
@@ -537,9 +532,9 @@ def build_information_graph(batch,
 
             nonzero_final_probs = []
 
-            #if not(rel_matrix_nonzero.argmax(-1).sum() > 200 or rel_matrix_nonzero.argmax(-1).sum() == 0):
+            # if not(rel_matrix_nonzero.argmax(-1).sum() > 200 or rel_matrix_nonzero.argmax(-1).sum() == 0):
 
-            #all_cand_rels = []
+            # all_cand_rels = []
 
             for i in range(cluster_num):
                 for j in range(cluster_num):
@@ -562,9 +557,7 @@ def build_information_graph(batch,
 
                         cur_idx += 1
 
-                    #if rel_cand[i, j]:
-
-
+                    # if rel_cand[i, j]:
 
         cur_graph = Graph(entities, triggers, relations, [], coref_matrix,
                           cur_clusters, cur_cluster_labels_ev)
@@ -591,8 +584,8 @@ def load_model(path, model, device=0, gpu=True):
 
     return model, vocabs, optimizer
 
-def get_coref_clusters(coref_matrix):
 
+def get_coref_clusters(coref_matrix):
     if not isinstance(coref_matrix, list):
         coref_matrix = coref_matrix.tolist()
 
@@ -620,8 +613,8 @@ def get_coref_clusters(coref_matrix):
 
     return coref_entities, coref_cluster_lists
 
-def clusters_from_cluster_labels(cluster_labels):
 
+def clusters_from_cluster_labels(cluster_labels):
     num_clusters = max(cluster_labels, default=-1) + 1
     clusters = [[] for i in range(num_clusters)]
 
@@ -629,6 +622,7 @@ def clusters_from_cluster_labels(cluster_labels):
         clusters[cl].append(i)
 
     return clusters
+
 
 def align_pred_to_gold(true_entities, pred_entities):
     rev_true = defaultdict(lambda: -1)
@@ -655,10 +649,9 @@ from highlight_text import ax_text, fig_text
 import matplotlib.colors as mcolors
 from sklearn.manifold import TSNE
 
+
 def summary_graph(pred_graph, true_graph, batch,
-                  writer, global_step, prefix, vocabs, coref_embeds=None, id=None):
-
-
+                  writer, global_step, prefix, vocabs, coref_embeds=None, id=None, create_images=False):
     if coref_embeds is not None:
         coref_embeds = coref_embeds[0]
 
@@ -738,8 +731,6 @@ def summary_graph(pred_graph, true_graph, batch,
 
     all_cols = list(mcolors.TABLEAU_COLORS) + list(mcolors.BASE_COLORS)
 
-
-
     true_ent_text = ""
 
     tok_dict_t = dict()
@@ -754,7 +745,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     coref_entities = [i for i in range(entity_num)]
 
-    #cur_idx = 0
+    # cur_idx = 0
 
     print(entity_num, entity_num ** 2)
     print(len(batch.pos_entity_offsets[0]))
@@ -806,20 +797,21 @@ def summary_graph(pred_graph, true_graph, batch,
             cur_len = 0
             true_ent_text += '\n'
 
-    fig, ax = plt.subplots()
-    plt.tight_layout()
-    plt.axis('off')
-    # print(true_ent_text)
-    ax_text(x=0, y=1.,
-            s=true_ent_text,
-            color='k', highlight_colors=col_list, va='top')
-    # plt.show()
-    fig.canvas.draw()
-    # plt.show()
-    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    if create_images:
+        fig, ax = plt.subplots()
+        plt.tight_layout()
+        plt.axis('off')
+        # print(true_ent_text)
+        ax_text(x=0, y=1.,
+                s=true_ent_text,
+                color='k', highlight_colors=col_list, va='top')
+        # plt.show()
+        fig.canvas.draw()
+        # plt.show()
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-    writer.add_image(prefix + "true_entities_type", img1, global_step, dataformats='HWC')
+        writer.add_image(prefix + "true_entities_type", img1, global_step, dataformats='HWC')
 
     ###
 
@@ -852,20 +844,21 @@ def summary_graph(pred_graph, true_graph, batch,
             cur_len = 0
             true_ent_text += '\n'
 
-    fig, ax = plt.subplots()
-    plt.tight_layout()
-    plt.axis('off')
-    # print(true_ent_text)
-    ax_text(x=0, y=1.,
-            s=true_ent_text,
-            color='k', highlight_colors=col_list, va='top')
-    # plt.show()
-    fig.canvas.draw()
-    # plt.show()
-    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    if create_images:
+        fig, ax = plt.subplots()
+        plt.tight_layout()
+        plt.axis('off')
+        # print(true_ent_text)
+        ax_text(x=0, y=1.,
+                s=true_ent_text,
+                color='k', highlight_colors=col_list, va='top')
+        # plt.show()
+        fig.canvas.draw()
+        # plt.show()
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-    writer.add_image(prefix + "true_entities_coref", img1, global_step, dataformats='HWC')
+        writer.add_image(prefix + "true_entities_coref", img1, global_step, dataformats='HWC')
 
     ###
 
@@ -905,11 +898,13 @@ def summary_graph(pred_graph, true_graph, batch,
 
                     if coref_embeds is not None:
                         pred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
-                                             torch.norm(coref_embeds[i] - coref_embeds[j]).item(), is_actually_coref))
+                                                 torch.norm(coref_embeds[i] - coref_embeds[j]).item(),
+                                                 is_actually_coref))
                 else:
                     if coref_embeds is not None:
                         notpred_coref_pairs.append((predicted_entities[i], predicted_entities[j],
-                                             torch.norm(coref_embeds[i] - coref_embeds[j]).item(), is_actually_coref))
+                                                    torch.norm(coref_embeds[i] - coref_embeds[j]).item(),
+                                                    is_actually_coref))
 
                 cur_idx += 1
 
@@ -925,9 +920,9 @@ def summary_graph(pred_graph, true_graph, batch,
         for i in range(entity_num):
             if coref_entities[i] not in coref_dict:
                 coref_dict[coref_entities[i]] = len(coref_dict)
-                #pred_clusters.append([])
+                # pred_clusters.append([])
             coref_entities[i] = coref_dict[coref_entities[i]]
-            #pred_clusters[coref_entities[i]].append(i)
+            # pred_clusters[coref_entities[i]].append(i)
 
         pred_coref_ent = max(coref_entities, default=-1)
 
@@ -960,17 +955,17 @@ def summary_graph(pred_graph, true_graph, batch,
             n = [ent[0] for ent in predicted_entities]
             c = [all_cols[coref_entities[i] % len(all_cols)] for i in range(entity_num)]
 
-            fig, ax = plt.subplots()
-            ax.scatter(z, y, c=c)
+            if create_images:
+                fig, ax = plt.subplots()
+                ax.scatter(z, y, c=c)
 
-            for i, txt in enumerate(n):
-                ax.annotate(txt, (z[i], y[i]))
+                for i, txt in enumerate(n):
+                    ax.annotate(txt, (z[i], y[i]))
 
-            fig.canvas.draw()
-            img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-            img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-            writer.add_image(prefix + "pred_coref_embeds", img1, global_step, dataformats='HWC')
-
+                fig.canvas.draw()
+                img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+                img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+                writer.add_image(prefix + "pred_coref_embeds", img1, global_step, dataformats='HWC')
 
     col_list = []
 
@@ -999,22 +994,23 @@ def summary_graph(pred_graph, true_graph, batch,
             cur_len = 0
             pred_ent_text += '\n'
 
-    fig, ax = plt.subplots()
-    plt.tight_layout()
-    plt.axis('off')
-    # print(pred_ent_text)
-    ax_text(x=0, y=1.,
-            s=pred_ent_text,
-            color='k', highlight_colors=col_list, va='top')
-    # plt.show()
-    fig.canvas.draw()
-    # plt.show()
-    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    # img0 = img.reshape((3,) + fig.canvas.get_width_height()[::-1])
-    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    if create_images:
+        fig, ax = plt.subplots()
+        plt.tight_layout()
+        plt.axis('off')
+        # print(pred_ent_text)
+        ax_text(x=0, y=1.,
+                s=pred_ent_text,
+                color='k', highlight_colors=col_list, va='top')
+        # plt.show()
+        fig.canvas.draw()
+        # plt.show()
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        # img0 = img.reshape((3,) + fig.canvas.get_width_height()[::-1])
+        img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-    # writer.add_image(prefix+"true_entities_text", img0, global_step)
-    writer.add_image(prefix + "pred_ent_type", img1, global_step, dataformats='HWC')
+        # writer.add_image(prefix+"true_entities_text", img0, global_step)
+        writer.add_image(prefix + "pred_ent_type", img1, global_step, dataformats='HWC')
 
     ###
 
@@ -1156,11 +1152,13 @@ def load_word_embed(path: str,
 
 def elem_max(t1, t2):
     combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
-    return torch.max(combined, dim=-1)[0]#.squeeze(-1)
+    return torch.max(combined, dim=-1)[0]  # .squeeze(-1)
+
 
 def elem_min(t1, t2):
     combined = torch.cat((t1.unsqueeze(-1), t2.unsqueeze(-1)), dim=-1)
-    return torch.min(combined, dim=-1)[0]#.squeeze(-1)
+    return torch.min(combined, dim=-1)[0]  # .squeeze(-1)
+
 
 def get_pairwise_idxs_separate(num1: int, num2: int, skip_diagonal: bool = False):
     idxs1, idxs2 = [], []
@@ -1255,7 +1253,7 @@ class RegLayer(nn.Module):
 
         self.drop = nn.Dropout(d)
         self.norm = nn.LayerNorm(hid_dim)
-        #self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
+        # self.norm = nn.InstanceNorm1d(hid_dim, affine=True, track_running_stats=True)
 
         self.s = s
 
@@ -1265,20 +1263,21 @@ class RegLayer(nn.Module):
             x = x * (r + 1.)
             del r"""
 
-        #x = self.drop(x)
+        # x = self.drop(x)
 
         # print(x.shape)
-        #x = x.transpose(-2, -1)
+        # x = x.transpose(-2, -1)
         # print(x.shape)
         x = self.norm(x)
-        #x = x.transpose(-2, -1)
+        # x = x.transpose(-2, -1)
 
         return x
 
+
 import networkx as nx
 
-def draw_network(entities, clusters, relations, writer, prefix, global_step, id):
 
+def draw_network(entities, clusters, relations, writer, prefix, global_step, id, create_images=False):
     ents = []
 
     for cl_id, cl in enumerate(clusters):
@@ -1298,19 +1297,18 @@ def draw_network(entities, clusters, relations, writer, prefix, global_step, id)
 
     G.add_edges_from(rels)
 
-    fig, ax = plt.subplots()
-    plt.tight_layout()
-    plt.axis('off')
+    if create_images:
+        fig, ax = plt.subplots()
+        plt.tight_layout()
+        plt.axis('off')
 
+        nx.draw(G, node_size=50)
 
-    nx.draw(G, node_size=50)
+        fig.canvas.draw()
 
-    fig.canvas.draw()
+        img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+        img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
 
-    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
-    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-
-    writer.add_image(prefix + "_graph", img1, global_step, dataformats='HWC')
-
+        writer.add_image(prefix + "_graph", img1, global_step, dataformats='HWC')
 
     nx.write_gexf(G, "output/" + prefix + "_" + str(id) + ".gexf")

@@ -1258,13 +1258,13 @@ class IEDataset(Dataset):
 
             ###
 
-            print(coref_cluster_lists_txt)
+            """print(coref_cluster_lists_txt)
 
             for (cl_1, cl_2, t) in relations_cl:
                 em_1 = inst['entities'][ent_to_first_mention[cl_1]].text
                 em_2 = inst['entities'][ent_to_first_mention[cl_2]].text
 
-                print(em_1, "-", em_2, ":", t)
+                print(em_1, "-", em_2, ":", t)"""
 
             #input()
 
