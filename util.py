@@ -1312,3 +1312,35 @@ def draw_network(entities, clusters, relations, writer, prefix, global_step, id,
         writer.add_image(prefix + "_graph", img1, global_step, dataformats='HWC')
 
     nx.write_gexf(G, "output/" + prefix + "_" + str(id) + ".gexf")
+
+
+def get_facts(graphs, titles, rev_dict):
+
+    facts = []
+
+    for (title, graph) in zip(titles, graphs):
+        for (h, t, r_text) in graph.relations:
+            r_sep = r_text.split("|")
+            r_rev = [rev_dict[r_i] for r_i in r_sep]
+            for r in r_rev:
+                facts.append({
+                    "title": title,
+                    "h_idx": h,
+                    "t_idx": t,
+                    "r": r
+                })
+
+    return facts
+
+def get_rev_dict(rel_info_path):
+
+    rel_info = open(rel_info_path, 'r', encoding='utf-8')
+
+    rel_info = json.loads(rel_info.readline())
+
+    rev_dict = dict()
+
+    for k, v in rel_info.items():
+        rev_dict[v] = k
+
+    return rev_dict

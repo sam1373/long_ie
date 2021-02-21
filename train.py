@@ -21,7 +21,7 @@ from data2 import IEDataset
 from scorer import score_graphs
 from util import generate_vocabs, load_valid_patterns, save_result, best_score_by_task, \
     build_information_graph, label2onehot, load_model, \
-    summary_graph, load_word_embed
+    summary_graph, load_word_embed, get_facts, get_rev_dict
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -38,6 +38,10 @@ import gc
 
 
 skip_train = False
+produce_outputs = True
+
+if produce_outputs:
+    rev_dict = get_rev_dict("output/docred/rel_info.json")
 
 # configuration
 parser = ArgumentParser()
@@ -120,26 +124,26 @@ sent_lens = [0, 300, 500, 1000, 3000]
 #scierc
 #sent_lens = [0, 100, 200, 300, 500]
 
-if args.debug:
+"""if args.debug:
     train_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
     dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
     test_sets = [IEDataset(config.file_dir + config.dev_file, config, word_vocab)]
     if config.get("use_sent_set"):
         test_sent_set = IEDataset(config.file_dir + config.sent_set_file, config, word_vocab)
+else:"""
+train_set = IEDataset(config.file_dir + config.train_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
+dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
+if config.get("split_by_doc_lens"):
+    test_sets = []
+    for i in range(1, len(sent_lens)):
+        max_len = sent_lens[i]
+        min_len = sent_lens[i - 1]
+        test_sets.append(IEDataset(config.file_dir + config.test_file, config, word_vocab,
+                                   min_sent_len=min_len, max_sent_len=max_len))
 else:
-    train_set = IEDataset(config.file_dir + config.train_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
-    dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
-    if config.get("split_by_doc_lens"):
-        test_sets = []
-        for i in range(1, len(sent_lens)):
-            max_len = sent_lens[i]
-            min_len = sent_lens[i - 1]
-            test_sets.append(IEDataset(config.file_dir + config.test_file, config, word_vocab,
-                                       min_sent_len=min_len, max_sent_len=max_len))
-    else:
-        test_sets = [IEDataset(config.file_dir + config.test_file, config, word_vocab)]
-    if config.get("use_sent_set"):
-        test_sent_set = IEDataset(config.file_dir + config.sent_set_file, config, word_vocab)
+    test_sets = [IEDataset(config.file_dir + config.test_file, config, word_vocab)]
+if config.get("use_sent_set"):
+    test_sent_set = IEDataset(config.file_dir + config.sent_set_file, config, word_vocab)
 
 cur_swap_prob = 0.
 
@@ -298,7 +302,7 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
-            if args.debug and batch_idx == 10:
+            if args.debug and batch_idx == 500:
                 break
 
             loss, train_loss_names = model(batch, epoch=epoch)
@@ -384,7 +388,7 @@ for epoch in range(epoch_num):
     gold_dev_graphs, pred_dev_graphs, pred_dev_gold_input_graphs = [], [], []
     dev_sent_ids, dev_tokens = [], []
 
-    if epoch % 5 == 0:
+    if epoch % 5 == 0 and not args.debug:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
             result = model.predict(batch, epoch=epoch)
@@ -442,7 +446,10 @@ for epoch in range(epoch_num):
             torch.save(state, "model.pt")
             best_dev_score = dev_scores[score_to_use]['f']
 
-    if epoch % 5 == 0 and do_test and not args.debug:
+    if epoch % 5 == 0 and do_test:
+
+        fact_dict_list = []
+
         for ts_idx, test_set in enumerate(test_sets):
             if len(test_set) == 0:
                 continue
@@ -456,7 +463,7 @@ for epoch in range(epoch_num):
             for batch in tqdm(test_loader, ncols=75):
                 result = model.predict(batch)
 
-                pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
+                #pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
 
                 #if batch_idx % 10 == 0:
                 #    summary_graph(pred_graphs[0], batch.graphs[0], batch,
@@ -469,12 +476,16 @@ for epoch in range(epoch_num):
 
                 pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
 
-                pred_test_graphs.extend(pred_graphs)
+                #pred_test_graphs.extend(pred_graphs)
                 gold_test_graphs.extend(batch.graphs)
                 test_sent_ids.extend(batch.sent_ids)
                 test_tokens.extend(batch.tokens)
 
-            print('Test Set', ts_idx)
+                fact_dict_list.extend(get_facts(pred_gold_input_graphs, batch.sent_ids, rev_dict))
+
+            json.dump(fact_dict_list, open("output/result.json", "w"))
+
+            """print('Test Set', ts_idx)
             test_scores = score_graphs(gold_test_graphs, pred_test_graphs, not symmetric_rel)
             print('Test', ts_idx, 'Gold Inputs')
             test_g_i_scores = score_graphs(gold_test_graphs, pred_test_gold_input_graphs, not symmetric_rel, gold_inputs=True)
@@ -483,7 +494,7 @@ for epoch in range(epoch_num):
                 writer.add_scalar('test_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
 
             for k, v in test_g_i_scores.items():
-                writer.add_scalar('test_gi_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
+                writer.add_scalar('test_gi_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)"""
 
     if epoch % 5 == 0 and config.get("use_sent_set"):
 
@@ -499,7 +510,7 @@ for epoch in range(epoch_num):
 
             pred_graphs = build_information_graph(batch, *result, vocabs)
 
-            if batch_idx % 100 == 0:
+            if batch_idx % 500 == 0:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "sent_", vocabs, None)
 
