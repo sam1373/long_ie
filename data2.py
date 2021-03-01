@@ -595,6 +595,8 @@ class IEDataset(Dataset):
         entities = sentence.entities
         processed_entities = []
         for entity in entities:
+            if entity.start >= len(sentence.tokens):
+                continue
             if remove_pro and entity.mention_type == 'PRO':
                 continue
             if remove_fillers and entity.mention_type == 'FILLER':
@@ -627,6 +629,8 @@ class IEDataset(Dataset):
         processed_events = []
         type_dict = dict()
         for event in events:
+            if event.trigger.start >= len(sentence.tokens):
+                continue
             arguments = [arg for arg in event.arguments
                          if sentence.has_entity(arg.entity_id, arg.mention_id)]
             event.arguments = arguments
@@ -673,13 +677,30 @@ class IEDataset(Dataset):
         #pieces = [tokenizer.tokenize(" " * (i > 0 and not (token in [".", ","])) + token) for i, token in enumerate(tokens)]
         token_lens = [len(p) for p in pieces]
         # Remove overlength sentences
-        if sum(token_lens) > max_sent_len or sum(token_lens) < min_sent_len:
-            #print("skipped due to length:", sum(token_lens))
-            return False
+
+
         # Todo: automatically remove 0-len tokens
         assert all(l > 0 for l in token_lens)
         # Flatten word pieces
         pieces = [p for ps in pieces for p in ps]
+
+        if len(pieces) < min_sent_len:
+            return False
+        if len(pieces) > max_sent_len:
+            if not self.config.get("truncate_long_docs"):
+                return False
+            else:
+                cur_cum_len = 0
+                for j in range(len(tokens)):
+                    cur_cum_len += token_lens[j]
+                    if cur_cum_len > max_sent_len - 1:
+                        cur_cum_len -= token_lens[j]
+                        tokens = tokens[:j]
+                        token_lens = token_lens[:j]
+                        pieces = pieces[:cur_cum_len + 1]
+                        break
+
+        sentence.tokens = tokens
         sentence.pieces = pieces
         sentence.token_lens = token_lens
         sentence.piece_idxs = tokenizer.encode(pieces,

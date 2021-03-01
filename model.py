@@ -291,8 +291,8 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = nn.Transformer(num_encoder_layers = 3,
-                                              num_decoder_layers = 6,
+        self.rel_transformer = nn.Transformer(num_encoder_layers = 0,
+                                              num_decoder_layers = 3,
                                               d_model=comp_dim * 2,
                                               nhead=4)
 
@@ -386,6 +386,8 @@ class LongIE(nn.Module):
                       .unsqueeze(-1)
                       .expand(batch_size, -1, bert_dim)) + 1#<s>
         token_mask = bert_outputs.new(token_mask).unsqueeze(-1)
+
+        #print(token_idxs.shape, token_idxs.min(), token_idxs.max())
 
         # For each token, select vectors of its wordpieces and average them
         bert_outputs = bert_outputs.gather(1, token_idxs) * token_mask

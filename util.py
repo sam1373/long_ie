@@ -1074,7 +1074,7 @@ def summary_graph(pred_graph, true_graph, batch,
             arg2 = predicted_entities[pred_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
-        prob_pred = F.log_softmax(pred_graph.rel_probs[i]).tolist()
+        prob_pred = F.log_softmax(pred_graph.rel_probs[i], dim=-1).tolist()
         prob_pred = max(prob_pred)
         predicted_relations.append((arg1, arg2, t, prob_pred))
 

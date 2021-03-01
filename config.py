@@ -78,6 +78,8 @@ class Config():
 
         self.produce_outputs = kwargs.pop("produce_outputs", False)
 
+        self.truncate_long_docs = kwargs.pop("truncate_long_docs", True)
+
 
     def get(self, attr, default=None):
         return getattr(self, attr, default)
