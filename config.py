@@ -73,6 +73,11 @@ class Config():
         self.classify_roles = kwargs.pop("classify_roles", True)
         self.do_coref = kwargs.pop("do_coref", True)
 
+        self.only_test_g_i = kwargs.pop("only_test_g_i", False)
+        self.only_train_g_i = kwargs.pop("only_train_g_i", False)
+
+        self.produce_outputs = kwargs.pop("produce_outputs", False)
+
 
     def get(self, attr, default=None):
         return getattr(self, attr, default)

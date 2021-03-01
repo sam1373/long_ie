@@ -528,7 +528,7 @@ def build_information_graph(batch,
             rel_matrix_nonzero = relation_any[graph_idx].view(cluster_num, cluster_num, -1)
             cur_idx = 0
 
-            print(rel_matrix_nonzero.argmax(-1).sum())
+            #print(rel_matrix_nonzero.argmax(-1).sum())
 
             nonzero_final_probs = []
 
@@ -747,9 +747,9 @@ def summary_graph(pred_graph, true_graph, batch,
 
     # cur_idx = 0
 
-    print(entity_num, entity_num ** 2)
-    print(len(batch.pos_entity_offsets[0]))
-    print(batch.coref_labels.shape)
+    #print(entity_num, entity_num ** 2)
+    #print(len(batch.pos_entity_offsets[0]))
+    #print(batch.coref_labels.shape)
 
     coref_entities, true_clusters = get_coref_clusters(batch.coref_labels[0])
 

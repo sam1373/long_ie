@@ -188,7 +188,7 @@ class LongIE(nn.Module):
                  coref_embed_dim: int = 64,
                  hidden_dim: int = 500,#500
                  span_transformer_layers: int = 10,#10
-                 encoder_dropout_prob: float = 0.2,
+                 encoder_dropout_prob: float = 0.,
                  type_embed_dim: int = 32,
                  comp_dim: int = 128,
                  ):
@@ -339,6 +339,7 @@ class LongIE(nn.Module):
             inputs (torch.Tensor): A batch of input sequences of wordpieces
             indices.
         """
+
         all_bert_outputs = self.encoder(inputs, attention_mask=attention_mask, output_hidden_states=True)
 
         bert_outputs = all_bert_outputs[0]
@@ -460,6 +461,8 @@ class LongIE(nn.Module):
         #print(batch.pos_entity_offsets)
 
         #print(batch.tokens)
+        #print(batch.pieces_text)
+        #print(batch.pieces.shape)
 
         #print(batch.token_lens)
 
@@ -780,8 +783,10 @@ class LongIE(nn.Module):
                 pair_ids = torch.LongTensor(get_pairwise_idxs(cluster_num, cluster_num)).cuda()
                 entity_pairs = torch.gather(entity_aggr, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
                                                                                             entity_spans.shape[2]))
-                type_pred = type_pred.argmax(-1)
-                type_pred_embed = self.type_embed(type_pred)
+                type_pred0 = type_pred.argmax(-1)
+                if gold_inputs or self.config.get("only_train_g_i"):
+                    type_pred0 = batch.entity_labels[batch.entity_labels > 0].view(batch_size, -1)
+                type_pred_embed = self.type_embed(type_pred0)
                 entity_type_pairs = torch.gather(type_pred_embed, 1,
                                                  pair_ids.view(1, -1, 1).
                                                  expand(entity_spans.shape[0], -1, type_pred_embed.shape[2]))
@@ -980,43 +985,45 @@ class LongIE(nn.Module):
 
         loss = []
 
-        if self.config.get("classify_triggers"):
-            trig_loss_start = self.criteria(is_start_pred_ev.view(-1, 2), batch.is_start_ev.view(-1))
-
-            # can use this if set 0-len to not count
-            # gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
-
-            gold_one = batch.is_start_ev == 1
-
-            trig_loss_len = self.criteria(len_from_here_pred_ev[gold_one].view(-1, 2),
-                                            batch.len_from_here_ev[gold_one].view(-1))
-            if type_pred_ev is not None:
-                trig_loss_type = self.criteria(type_pred_ev.view(-1, len(self.vocabs["event"])),
-                                             batch.trigger_labels[batch.trigger_labels > 0])
-            else:
-                trig_loss_type = 0
-            # batch.type_from_here[:].view(-1))
-
-            loss = loss + [trig_loss_start, trig_loss_len, trig_loss_type]
-            loss_names = loss_names + ["trig_start", "trig_len", "trig_type"]
-
         #TODO: also fix for bs > 1
 
-        entity_loss_start = self.criteria(is_start.view(-1, 2), batch.is_start.view(-1))
+        if not self.config.get("only_train_g_i"):
 
-        #can use this if set 0-len to not count
-        #gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
+            entity_loss_start = self.criteria(is_start.view(-1, 2), batch.is_start.view(-1))
 
-        gold_one = batch.is_start == 1
+            #can use this if set 0-len to not count
+            #gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
 
-        entity_loss_len = self.criteria(len_from_here[gold_one].view(-1, 2),
-                                        batch.len_from_here[gold_one].view(-1))
-        entity_loss_type = self.criteria(type_pred.view(-1, len(self.vocabs["entity"])),
-                                         batch.entity_labels[batch.entity_labels > 0])
-                                         #batch.type_from_here[:].view(-1))
+            gold_one = batch.is_start == 1
 
-        loss = loss + [entity_loss_start, entity_loss_len, entity_loss_type]
-        loss_names = loss_names + ["entity_start", "entity_len", "entity_type"]
+            entity_loss_len = self.criteria(len_from_here[gold_one].view(-1, 2),
+                                            batch.len_from_here[gold_one].view(-1))
+            entity_loss_type = self.criteria(type_pred.view(-1, len(self.vocabs["entity"])),
+                                             batch.entity_labels[batch.entity_labels > 0])
+                                             #batch.type_from_here[:].view(-1))
+
+            loss = loss + [entity_loss_start, entity_loss_len, entity_loss_type]
+            loss_names = loss_names + ["entity_start", "entity_len", "entity_type"]
+
+            if self.config.get("classify_triggers"):
+                trig_loss_start = self.criteria(is_start_pred_ev.view(-1, 2), batch.is_start_ev.view(-1))
+
+                # can use this if set 0-len to not count
+                # gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
+
+                gold_one = batch.is_start_ev == 1
+
+                trig_loss_len = self.criteria(len_from_here_pred_ev[gold_one].view(-1, 2),
+                                              batch.len_from_here_ev[gold_one].view(-1))
+                if type_pred_ev is not None:
+                    trig_loss_type = self.criteria(type_pred_ev.view(-1, len(self.vocabs["event"])),
+                                                   batch.trigger_labels[batch.trigger_labels > 0])
+                else:
+                    trig_loss_type = 0
+                # batch.type_from_here[:].view(-1))
+
+                loss = loss + [trig_loss_start, trig_loss_len, trig_loss_type]
+                loss_names = loss_names + ["trig_start", "trig_len", "trig_type"]
 
         #entity_loss = self.criteria(entity_type.view(-1, len(self.vocabs["entity"])),
         #                               batch.entity_labels.view(1, -1, 1).gather(1, span_candidates_idxs).view(-1))
@@ -1028,7 +1035,8 @@ class LongIE(nn.Module):
             print('Entity loss is NaN')
             print(batch)"""
 
-        if self.config.get("do_coref"):
+        if self.config.get("do_coref") and not self.config.get("only_train_g_i"):
+
 
             """mention_pair_ids = get_pairwise_idxs(coref_embeds.shape[1], coref_embeds.shape[1],
                                                  skip_diagonal=True, sep=False)
@@ -1160,26 +1168,24 @@ class LongIE(nn.Module):
             relation_nonzero_loss = self.relation_nonzero_loss(relation_any.view(-1, 2),
                                                   (batch.relation_labels.view(-1) > 0).long())
 
-            print("rels")
-            #print("first pass:", relation_any.argmax(-1).sum())
-            print("candidates:", relation_pred.shape[1])
-            print("predicted as non-zero:", (relation_pred.argmax(-1) > 0).long().sum())
-            print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
-            #print("rels in candidates", (relation_true_for_cand.view(-1) > 0).long().sum())
+            #print("rels")
+            #print("candidates:", relation_pred.shape[1])
+            #print("predicted as non-zero:", (relation_pred.argmax(-1) > 0).long().sum())
+            #print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
 
             relation_any_cont_gold = elem_min(relation_any.argmax(-1).view(-1),
                                               (batch.relation_labels.view(-1) > 0).long())
 
-            print("intersect:", relation_any_cont_gold.sum())
+            #print("intersect:", relation_any_cont_gold.sum())
 
             rel_pred_correct = (relation_pred.view(-1, relation_pred.shape[-1]).argmax(-1) ==
                                 relation_true_for_cand.view(-1))
 
-            print("predicted right:", rel_pred_correct.sum())
+            #print("predicted right:", rel_pred_correct.sum())
 
             rel_pred_correct_nonzero = elem_min(rel_pred_correct, (relation_true_for_cand.view(-1) > 0))
 
-            print("predicted right non-zero:", rel_pred_correct_nonzero.sum())
+            #print("predicted right non-zero:", rel_pred_correct_nonzero.sum())
 
             relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
                                           relation_true_for_cand.view(-1)) * 5

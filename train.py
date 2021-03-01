@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from transformers import (LongformerModel, LongformerTokenizer, RobertaModel,
                           RobertaTokenizer, BertConfig, BertTokenizer,
                           AutoTokenizer,
-                          AutoModel,
+                          AutoModel, BertModel,
                           AdamW,
                           ElectraTokenizer, ElectraForMaskedLM,
                           XLNetModel, XLNetTokenizer,
@@ -38,18 +38,21 @@ import gc
 
 
 skip_train = False
-produce_outputs = True
 
-if produce_outputs:
-    rev_dict = get_rev_dict("output/docred/rel_info.json")
 
 # configuration
 parser = ArgumentParser()
 parser.add_argument('-c', '--config', default='config/example.json')
 parser.add_argument('-d', '--debug', default=False)
+parser.add_argument('-r', '--result_name', default='result')
 args = parser.parse_args()
 config = Config.from_json_file(args.config)
 # print(config.to_dict())
+
+produce_outputs = config.get("produce_outputs")
+
+if produce_outputs:
+    rev_dict = get_rev_dict("output/docred/rel_info.json")
 
 max_sent_len = config.get('max_sent_len', 2000)
 symmetric_rel = config.get('symmetric_relations')
@@ -103,16 +106,14 @@ if use_extra_word_embed:
 # datasets
 model_name = config.bert_model_name
 
-tokenizer = RobertaTokenizer.from_pretrained("roberta-base",
-                                             cache_dir=config.bert_cache_dir,
-                                             do_lower_case=False)
+tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
 
 
 #tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
 
+#tokenizer = BertTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
 
 #tokenizer = AutoTokenizer.from_pretrained("SpanBERT/spanbert-base-cased")
-
 
 #tokenizer = XLNetTokenizer.from_pretrained("xlnet-base-cased")
 
@@ -209,9 +210,10 @@ else:
                                         output_hidden_states=True,
                                         fast=True)"""
 
-#bert = RobertaModel.from_pretrained(config.bert_model_name)
-bert = LongformerModel.from_pretrained(config.bert_model_name)
+bert = RobertaModel.from_pretrained(config.bert_model_name)
+#bert = LongformerModel.from_pretrained(config.bert_model_name)
 
+#bert = BertModel.from_pretrained("SpanBERT/spanbert-base-cased")
 #bert = XLNetModel.from_pretrained("xlnet-base-cased")
 
 #bert = AutoModel.from_pretrained("allenai/scibert_scivocab_cased")
@@ -355,32 +357,49 @@ for epoch in range(epoch_num):
         if epoch % 5 == 0 and not args.debug:
 
             gold_train_graphs, pred_train_graphs = [], []
+            pred_train_gold_input_graphs = []
 
             for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
-                if batch_idx % 400 == 0:
-                    result = model.predict(batch, epoch=epoch)
+                if batch_idx < 300:
 
-                    pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
+                    if not config.get("only_test_g_i"):
+                        result = model.predict(batch, epoch=epoch)
+                        pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
 
-                    coref_embeds = result[-2]
+                    result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
-                    pred_train_graphs.extend(pred_graphs)
-                    gold_train_graphs.extend(batch.graphs)
+                    pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
+                                                                     gold_inputs=True, symmetric_rel=symmetric_rel)
 
-                    #if batch_idx % 150 == 0:# or batch_idx < 10:
-                    summary_graph(pred_graphs[0], batch.graphs[0], batch,
+                    pred_train_gold_input_graphs.extend(pred_gold_input_graphs)
+
+                    if not config.get("only_test_g_i"):
+                        pred_train_graphs.extend(pred_graphs)
+                        summary_graph(pred_graphs[0], batch.graphs[0], batch,
                             writer, global_step, "train_", vocabs, None, id=batch_idx)
 
+                    gold_train_graphs.extend(batch.graphs)
 
-            print('Train')
-            train_scores = score_graphs(gold_train_graphs, pred_train_graphs, not symmetric_rel)
+
+            if not config.get("only_test_g_i"):
+                print('Train')
+                train_scores = score_graphs(gold_train_graphs, pred_train_graphs, not symmetric_rel)
+            print('Train Gold Inputs')
+            train_g_i_scores = score_graphs(gold_train_graphs, pred_train_gold_input_graphs, not symmetric_rel)
+
 
             # writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
 
-            for k, v in train_scores.items():
-                writer.add_scalar('train_' + k + '_f', v['f'], global_step)
+            if not config.get("only_test_g_i"):
+                for k, v in train_scores.items():
+                    writer.add_scalar('train_' + k + '_f', v['f'], global_step)
+
+            for k, v in train_g_i_scores.items():
+                writer.add_scalar('train_gi_' + k + '_f', v['f'], global_step)
 
     # Dev
+    is_best = False
+
     dev_loader = DataLoader(dev_set,
                             batch_size,
                             shuffle=False,
@@ -391,14 +410,13 @@ for epoch in range(epoch_num):
     if epoch % 5 == 0 and not args.debug:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
-            result = model.predict(batch, epoch=epoch)
 
-            coref_embeds = result[-1]
+            if not config.get("only_test_g_i"):
+                result = model.predict(batch, epoch=epoch)
+                pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
 
-            pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
-
-            if len(batch.tokens[0]) < 400 and batch_idx < 20:
-                summary_graph(pred_graphs[0], batch.graphs[0], batch,
+                if len(batch.tokens[0]) < 400 and batch_idx < 20:
+                    summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_", vocabs, None, id=batch_idx)
 
             result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
@@ -412,7 +430,10 @@ for epoch in range(epoch_num):
                 summary_graph(pred_gold_input_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_gi_", vocabs, None, id=batch_idx)
 
-            pred_dev_graphs.extend(pred_graphs)
+
+            if not config.get("only_test_g_i"):
+                pred_dev_graphs.extend(pred_graphs)
+
             gold_dev_graphs.extend(batch.graphs)
             dev_sent_ids.extend(batch.sent_ids)
             dev_tokens.extend(batch.tokens)
@@ -421,8 +442,10 @@ for epoch in range(epoch_num):
         # pred_dev_graphs = [g.clean(False)
         #                    for g in pred_dev_graphs]
 
-        print('Dev')
-        dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs, not symmetric_rel)
+        if not config.get("only_test_g_i"):
+            print('Dev')
+            dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs, not symmetric_rel)
+
         print('Dev Gold Inputs')
         dev_g_i_scores = score_graphs(gold_dev_graphs, pred_dev_gold_input_graphs, not symmetric_rel)
         """save_result(os.path.join(output_path, 'dev.result.{}.json'.format(epoch)),
@@ -433,18 +456,25 @@ for epoch in range(epoch_num):
 
         #writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
 
-        for k, v in dev_scores.items():
-            writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
+        if not config.get("only_test_g_i"):
+            for k, v in dev_scores.items():
+                writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
 
         for k, v in dev_g_i_scores.items():
             writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
-        score_to_use = "entity"
+        score_to_use = "relation"
 
-        if dev_scores[score_to_use]['f'] > best_dev_score:
-            print('Saving best dev model by ' + score_to_use)
-            torch.save(state, "model.pt")
-            best_dev_score = dev_scores[score_to_use]['f']
+        if config.get("only_test_g_i"):
+            cur_dev_score = dev_g_i_scores[score_to_use]['f']
+        else:
+            cur_dev_score = dev_scores[score_to_use]['f']
+
+        if cur_dev_score > best_dev_score:
+            print('Saving res for best dev model by ' + score_to_use)
+            #torch.save(state, "model.pt")
+            best_dev_score = cur_dev_score
+            is_best = True
 
     if epoch % 5 == 0 and do_test:
 
@@ -461,13 +491,10 @@ for epoch in range(epoch_num):
             gold_test_graphs, pred_test_graphs, pred_test_gold_input_graphs = [], [], []
             test_sent_ids, test_tokens = [], []
             for batch in tqdm(test_loader, ncols=75):
-                result = model.predict(batch)
 
-                #pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
-
-                #if batch_idx % 10 == 0:
-                #    summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                #              writer, global_step, "test_", vocabs, None)
+                if not config.get("only_test_g_i"):
+                    result = model.predict(batch)
+                    pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
 
                 result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
@@ -476,25 +503,34 @@ for epoch in range(epoch_num):
 
                 pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
 
-                #pred_test_graphs.extend(pred_graphs)
+                if not config.get("only_test_g_i"):
+                    pred_test_graphs.extend(pred_graphs)
+
                 gold_test_graphs.extend(batch.graphs)
                 test_sent_ids.extend(batch.sent_ids)
                 test_tokens.extend(batch.tokens)
 
-                fact_dict_list.extend(get_facts(pred_gold_input_graphs, batch.sent_ids, rev_dict))
+                if produce_outputs:
+                    fact_dict_list.extend(get_facts(pred_gold_input_graphs, batch.sent_ids, rev_dict))
 
-            json.dump(fact_dict_list, open("output/result.json", "w"))
+            if is_best and produce_outputs:
+                print("saving test results in", "output/" + args.result_name + ".json")
+                json.dump(fact_dict_list, open("output/" + args.result_name + ".json", "w"))
 
-            """print('Test Set', ts_idx)
-            test_scores = score_graphs(gold_test_graphs, pred_test_graphs, not symmetric_rel)
+            if not config.get("only_test_g_i"):
+                print('Test Set', ts_idx)
+                test_scores = score_graphs(gold_test_graphs, pred_test_graphs, not symmetric_rel)
+
             print('Test', ts_idx, 'Gold Inputs')
             test_g_i_scores = score_graphs(gold_test_graphs, pred_test_gold_input_graphs, not symmetric_rel, gold_inputs=True)
 
-            for k, v in test_scores.items():
-                writer.add_scalar('test_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
+
+            if not config.get("only_test_g_i"):
+                for k, v in test_scores.items():
+                    writer.add_scalar('test_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
 
             for k, v in test_g_i_scores.items():
-                writer.add_scalar('test_gi_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)"""
+                writer.add_scalar('test_gi_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
 
     if epoch % 5 == 0 and config.get("use_sent_set"):
 
