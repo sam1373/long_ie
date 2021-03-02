@@ -13,7 +13,7 @@ import transformers
 from data import Batch
 from util import label2onehot, elem_max, elem_min, get_pairwise_idxs_separate, RegLayer
 
-from span_transformer import SpanTransformer, AggrTransformer
+from span_transformer import ContextTransformer
 
 import torch_scatter
 
@@ -291,10 +291,12 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = nn.Transformer(num_encoder_layers = 0,
-                                              num_decoder_layers = 3,
-                                              d_model=comp_dim * 2,
-                                              nhead=4)
+        self.rel_transformer = ContextTransformer(comp_dim * 2)
+
+        """nn.Transformer(num_encoder_layers = 0,
+                      num_decoder_layers = 3,
+                      d_model=comp_dim * 2,
+                      nhead=4)"""
 
         """self.cluster_aggr_trans = AggrTransformer(span_dim=token_initial_dim,
                                                   num_layers=10,
@@ -905,8 +907,22 @@ class LongIE(nn.Module):
                     #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
-                    relation_cand_pairs = self.rel_transformer(sent_context_comp.transpose(0, 1),
-                                                               relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
+                    relation_cand_pairs, attns = self.rel_transformer(sent_context_comp.transpose(0, 1),
+                                                               relation_cand_pairs.transpose(0, 1))
+                    relation_cand_pairs = relation_cand_pairs.transpose(0, 1)
+
+                    attn_sum = torch.sum(torch.cat(attns, dim=0), dim=0)
+
+                    attn_sum[attn_sum < 0.7] = 0.
+
+                    attn_highest = attn_sum.max()
+                    attn_mean = attn_sum.mean()
+
+                    attn_high_list = attn_sum.nonzero().tolist()
+
+                    if len(attn_high_list) > 0:
+                        print(attn_high_list)
+                        print(attn_highest, attn_mean)
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
 

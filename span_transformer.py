@@ -158,3 +158,41 @@ class AggrTransformer(nn.Module):
 
         return span_repr[:, 0]
 
+
+class ContextTransformer(nn.Module):
+
+    def __init__(self, hid_dim, num_heads=4, num_layers=3):
+
+        super().__init__()
+
+
+        self.attn, self.norm = [], []
+
+
+        for i in range(num_layers):
+            self.attn.append(
+                nn.MultiheadAttention(hid_dim, num_heads)
+            )
+
+            self.norm.append(
+                nn.LayerNorm(hid_dim)
+            )
+
+        self.attn = nn.ModuleList(self.attn)
+        self.norm = nn.ModuleList(self.norm)
+
+        self.num_layers = num_layers
+
+    def forward(self, context, x):
+
+        attns = []
+
+        for i in range(self.num_layers):
+
+            x1, attn = self.attn[i](x, context, context)
+            attns.append(attn)
+            x1 = self.norm[i](x1)
+
+            x = x + x1 * 0.05
+
+        return x, attns
