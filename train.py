@@ -375,8 +375,8 @@ for epoch in range(epoch_num):
 
                     if not config.get("only_test_g_i"):
                         pred_train_graphs.extend(pred_graphs)
-                        summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                            writer, global_step, "train_", vocabs, None, id=batch_idx)
+                        #summary_graph(pred_graphs[0], batch.graphs[0], batch,
+                        #    writer, global_step, "train_", vocabs, None, id=batch_idx)
 
                     gold_train_graphs.extend(batch.graphs)
 
