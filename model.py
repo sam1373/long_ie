@@ -748,6 +748,8 @@ class LongIE(nn.Module):
 
             cluster_lists = [[] for i in range(cluster_num)]
 
+
+
             for b in range(batch_size):
                 for i in range(cluster_labels.shape[1]):
                     cluster_lists[cluster_labels[b, i].item()].append(i)
@@ -898,8 +900,13 @@ class LongIE(nn.Module):
 
                     encoder_comp = self.rel_context_project(encoder_outputs)
 
+                    sent_context_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
+
                     #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
+
+                    relation_cand_pairs = self.rel_transformer(sent_context_comp.transpose(0, 1),
+                                                               relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
 

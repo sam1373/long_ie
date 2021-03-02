@@ -595,7 +595,7 @@ class IEDataset(Dataset):
         entities = sentence.entities
         processed_entities = []
         for entity in entities:
-            if entity.start >= len(sentence.tokens):
+            if entity.end > len(sentence.tokens):
                 continue
             if remove_pro and entity.mention_type == 'PRO':
                 continue

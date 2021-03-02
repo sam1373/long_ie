@@ -194,7 +194,7 @@ event_label_size = trigger_label_size = len(vocabs['event'])
 mention_label_size = len(vocabs['mention'])
 relation_label_size = len(vocabs['relation'])
 role_label_size = len(vocabs['role'])
-print(vocabs)
+#print(vocabs)
 
 # initialize the model
 print('Initialize model')
@@ -242,7 +242,7 @@ if skip_train == False:
 
     fine_tune_param_names = [n for n, p in model.named_parameters() if (n.startswith('encoder') or
                                                                         n.startswith('word_embed'))]
-    print(fine_tune_param_names)
+    #print(fine_tune_param_names)
     fine_tune_param_names = set(fine_tune_param_names)
 
     param_groups = [
