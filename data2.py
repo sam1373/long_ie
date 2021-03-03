@@ -898,7 +898,8 @@ class IEDataset(Dataset):
             c_j = mention_to_ent[arg2]
 
             for sent in relation.evidence:
-                evidence[c_i][c_j][sent] = 1
+                if sent < total_sents:
+                    evidence[c_i][c_j][sent] = 1
 
             if self.config.get("symmetric_relations"):
                 labels[c_i][c_j] = labels[c_j][c_i] = relation_type

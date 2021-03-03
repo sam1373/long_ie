@@ -1330,7 +1330,7 @@ def get_facts(graphs, titles, rev_dict):
     facts = []
 
     for (title, graph) in zip(titles, graphs):
-        for (h, t, r_text) in graph.relations:
+        for i, (h, t, r_text) in enumerate(graph.relations):
             r_sep = r_text.split("|")
             r_rev = [rev_dict[r_i] for r_i in r_sep]
             for r in r_rev:
@@ -1338,7 +1338,8 @@ def get_facts(graphs, titles, rev_dict):
                     "title": title,
                     "h_idx": h,
                     "t_idx": t,
-                    "r": r
+                    "r": r,
+                    "evidence": graph.evidence[i]
                 })
 
     return facts

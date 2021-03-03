@@ -25,6 +25,7 @@ class Graph(object):
         self.cluster_labels = cluster_labels
         self.cluster_labels_ev = cluster_labels_ev
         self.mentions = [] if mentions is None else mentions
+        self.evidence = evidence
 
         self.entity_num = len(entities)
         self.trigger_num = len(triggers)
