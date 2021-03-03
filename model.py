@@ -668,6 +668,9 @@ class LongIE(nn.Module):
         relation_any = None
 
         relation_true_for_cand = None
+        evidence_true_for_cand = None
+
+        attn_sum = None
 
         relation_cand = None
 
@@ -877,6 +880,7 @@ class LongIE(nn.Module):
                     relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs_proj_2.shape[-1]).cuda()
                     if not predict:
                         relation_true_for_cand = torch.zeros(batch_size, total_rel_cand).cuda().long()
+                        evidence_true_for_cand = torch.zeros(batch_size, total_rel_cand, sent_context.shape[-2]).cuda()
                     cur_idx = 0
                     for b in range(batch_size):
                         for i in range(cluster_num):
@@ -887,6 +891,7 @@ class LongIE(nn.Module):
                                     relation_cand_pairs[b, cur_idx] = entity_pairs_proj_2[b, pair_idx]
                                     if not predict:
                                         relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
+                                        evidence_true_for_cand[b, cur_idx] = batch.evidence_labels[b, i, j]
                                     cur_idx += 1
 
 
@@ -911,18 +916,18 @@ class LongIE(nn.Module):
                                                                relation_cand_pairs.transpose(0, 1))
                     relation_cand_pairs = relation_cand_pairs.transpose(0, 1)
 
-                    attn_sum = torch.sum(torch.cat(attns, dim=0), dim=0)
+                    attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)
 
-                    attn_sum[attn_sum < 0.7] = 0.
+                    #attn_sum[attn_sum < 1.] = 0.
 
-                    attn_highest = attn_sum.max()
+                    """attn_highest = attn_sum.max()
                     attn_mean = attn_sum.mean()
 
                     attn_high_list = attn_sum.nonzero().tolist()
 
                     if len(attn_high_list) > 0:
                         print(attn_high_list)
-                        print(attn_highest, attn_mean)
+                        print(attn_highest, attn_mean)"""
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
 
@@ -994,7 +999,8 @@ class LongIE(nn.Module):
 
         return is_start_pred, len_from_here_pred, type_pred, cluster_labels,\
                is_start_pred_ev, len_from_here_pred_ev, type_pred_ev, cluster_labels_ev, coref_embed_ev,\
-               relation_any, relation_cand, relation_true_for_cand, coref_embed, relation_pred
+               relation_any, relation_cand, relation_true_for_cand, coref_embed, relation_pred,\
+               attn_sum, evidence_true_for_cand
 
 
 
@@ -1002,7 +1008,8 @@ class LongIE(nn.Module):
         is_start, len_from_here, type_pred, cluster_labels, \
         is_start_pred_ev, len_from_here_pred_ev, type_pred_ev, cluster_labels_ev, coref_embed_ev, \
         relation_any, relation_cand, relation_true_for_cand,\
-        coref_embeds, relation_pred = self.forward_nn(batch, epoch=epoch)
+        coref_embeds, relation_pred,\
+        attn_sum, evidence_true_for_cand = self.forward_nn(batch, epoch=epoch)
 
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
@@ -1059,6 +1066,16 @@ class LongIE(nn.Module):
         else:
             print('Entity loss is NaN')
             print(batch)"""
+
+        if self.config.get("classify_evidence"):
+
+            #evid_loss = -(evidence_true_for_cand * attn_sum).mean()
+            evid_loss = -attn_sum[evidence_true_for_cand == 1].mean()
+
+            #print(-attn_sum.mean(), evid_loss)
+
+            loss.append(evid_loss)
+            loss_names.append("evidence")
 
         if self.config.get("do_coref") and not self.config.get("only_train_g_i"):
 

@@ -1,6 +1,6 @@
 class Graph(object):
-    def __init__(self, entities, triggers, relations, roles, coref_matrix=None,
-                 cluster_labels=None, cluster_labels_ev=None,
+    def __init__(self, entities, triggers, relations, roles, evidence=None,
+                 coref_matrix=None, cluster_labels=None, cluster_labels_ev=None,
                  mentions=None):
         """
         :param entities (list): A list of entities represented as a tuple of

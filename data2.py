@@ -77,6 +77,7 @@ class Batch:
     len_from_here_ev: torch.LongTensor
     type_from_here_ev: torch.LongTensor
     sent_nums: torch.LongTensor
+    evidence_labels: torch.LongTensor
 
     @property
     def batch_size(self):
@@ -271,6 +272,7 @@ class Relation:
     relation_subtype: str = None
     data: Dict[str, Any] = None
     is_symmetric: bool = False
+    evidence: List[int] = None
 
     def __post_init__(self):
         self.data = {}
@@ -284,6 +286,7 @@ class Relation:
                         relation_subtype=dict_obj['relation_subtype'],
                         arg1=RelationArgument.from_dict(dict_obj['arguments'][0], **kwargs),
                         arg2=RelationArgument.from_dict(dict_obj['arguments'][1], **kwargs),
+                        evidence=dict_obj.get("evidence", [])
                         # is_symmetric=dict_obj['relation_type'] in symmetric_relations
                         )
 
@@ -872,12 +875,13 @@ class IEDataset(Dataset):
 
         print("number of processed samples:", len(self.tensors))
 
-    def get_relation_labels_for_clusters(self, relations, mention_to_ent, mention_id_dict):
+    def get_relation_labels_for_clusters(self, relations, mention_to_ent, mention_id_dict, total_sents=1):
         relation_type_level = self.config.get('relation_type_level', 'subtype')
 
         cluster_num = max(mention_to_ent, default=0) + 1
 
-        labels = [[0] * cluster_num for i in range(cluster_num)]
+        labels = [[0 for j in range(cluster_num)] for i in range(cluster_num)]
+        evidence = [[[0 for k in range(total_sents)] for j in range(cluster_num)] for i in range(cluster_num)]
 
         relations_cl_set = set()
 
@@ -893,10 +897,17 @@ class IEDataset(Dataset):
             c_i = mention_to_ent[arg1]
             c_j = mention_to_ent[arg2]
 
+            for sent in relation.evidence:
+                evidence[c_i][c_j][sent] = 1
+
             if self.config.get("symmetric_relations"):
                 labels[c_i][c_j] = labels[c_j][c_i] = relation_type
+                for sent in relation.evidence:
+                    evidence[c_j][c_i][sent] = 1
             else:
                 labels[c_i][c_j] = relation_type
+
+
 
             if self.config.get("symmetric_relations") and c_i > c_j:
                 c_i, c_j = c_j, c_i
@@ -906,7 +917,7 @@ class IEDataset(Dataset):
         relations_cl = list(relations_cl_set)
 
 
-        return labels, relations_cl
+        return labels, relations_cl, evidence
 
     def get_relation_labels(self, relations, entities, graph, entity_uids):
         #also adds missing relations to rels list
@@ -985,12 +996,14 @@ class IEDataset(Dataset):
                       for idx, event in enumerate(events)}
 
         relations_ = []
+        evidence_ = []
         for relation in relations:
             arg1 = relation.arg1.uid
             arg2 = relation.arg2.uid
             relations_.append((entity_uids[arg1],
                                entity_uids[arg2],
                                relation.get_type(relation_type_level)))
+            evidence_.append(relation.evidence)
 
         roles = []
         for event in events:
@@ -998,7 +1011,7 @@ class IEDataset(Dataset):
             for argument in event.arguments:
                 entity = entity_uids[argument.uid]
                 roles.append((trigger, entity, argument.role))
-        return Graph(entities_, triggers, relations_, roles)
+        return Graph(entities_, triggers, relations_, roles, evidence = evidence_)
 
     def collate_fn(self,
                    batch: List[Dict[str, Any]],) -> Batch:
@@ -1043,6 +1056,7 @@ class IEDataset(Dataset):
 
         # Relation and arg role labels
         relation_labels, role_labels = [], []
+        evidence_labels = []
 
         entity_labels_sep, trigger_labels_sep = [], []
         relation_labels_sep, role_labels_sep = [], []
@@ -1095,7 +1109,7 @@ class IEDataset(Dataset):
             cur_num = 0
             for t in inst['tokens']:
                 sent_num.append(cur_num)
-                if t == '.':
+                if t == '</s>':
                     cur_num += 1
             sent_nums.append(sent_num + [0] * (max_token_num - inst['token_num']))
 
@@ -1264,11 +1278,15 @@ class IEDataset(Dataset):
             inst['graph'].cluster_labels = inst_mention_to_ent_coref
             inst['graph'].cluster_labels_ev = inst_mention_to_ev_coref
 
-            inst_relation_labels_cl, relations_cl = self.get_relation_labels_for_clusters(inst['relations'],
+            total_sents = max(sent_num) + 1
+
+            inst_relation_labels_cl, relations_cl, inst_evidence = self.get_relation_labels_for_clusters(inst['relations'],
                                                                           inst_mention_to_ent_coref,
-                                                                          mention_id_dict)
+                                                                          mention_id_dict,
+                                                                          total_sents)
 
             inst['graph'].relations = relations_cl
+
 
             ###
 
@@ -1298,6 +1316,8 @@ class IEDataset(Dataset):
             relation_labels_sep.append(inst_relation_labels_cl)
 
             relation_labels.append(inst_relation_labels_cl)
+
+            evidence_labels.append(inst_evidence)
 
 
             # Role labels
@@ -1336,6 +1356,7 @@ class IEDataset(Dataset):
 
             relation_labels = torch.cuda.LongTensor(relation_labels)
             role_labels = torch.cuda.LongTensor(role_labels)
+            evidence_labels = torch.cuda.LongTensor(evidence_labels)
 
             coref_labels = torch.cuda.LongTensor(coref_labels)
 
@@ -1457,4 +1478,5 @@ class IEDataset(Dataset):
             len_from_here_ev=len_from_here_ev,
             type_from_here_ev=type_from_here_ev,
             sent_nums=sent_nums,
+            evidence_labels=evidence_labels
         )

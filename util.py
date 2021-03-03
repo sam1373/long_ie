@@ -409,6 +409,8 @@ def build_information_graph(batch,
                             relation_true_for_cand,
                             coref_embeds,
                             relation_pred,
+                            attn_sum,
+                            evidence_true_for_cand,
                             vocabs,
                             gold_inputs=False,
                             symmetric_rel=True):
@@ -519,6 +521,7 @@ def build_information_graph(batch,
                             triggers.append((start, end, trigger_itos[type]))
 
         relations = []
+        evidence = []
 
         if relation_pred is not None:
             cluster_num = cur_clusters.max() + 1
@@ -551,16 +554,24 @@ def build_information_graph(batch,
 
                         rel_pred = relation_pred[graph_idx, cur_idx].argmax().item()
 
+                        attn_cur = attn_sum[graph_idx, cur_idx].tolist()
+
                         if rel_pred > 0:
                             relations.append((i, j, relation_itos[rel_pred]))
                             nonzero_final_probs.append(relation_pred[graph_idx, cur_idx])
+
+                            cur_evid = []
+                            for k in range(len(attn_cur)):
+                                if attn_cur[k] > 1:
+                                    cur_evid.append(k)
+                            evidence.append(cur_evid)
 
                         cur_idx += 1
 
                     # if rel_cand[i, j]:
 
-        cur_graph = Graph(entities, triggers, relations, [], coref_matrix,
-                          cur_clusters, cur_cluster_labels_ev)
+        cur_graph = Graph(entities, triggers, relations, [], evidence,
+                          coref_matrix, cur_clusters, cur_cluster_labels_ev)
 
         if relation_pred is not None:
             cur_graph.rel_probs = nonzero_final_probs
