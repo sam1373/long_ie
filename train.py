@@ -304,8 +304,8 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
-            if args.debug and batch_idx == 500:
-                break
+            #if args.debug and batch_idx == 500:
+            #    break
 
             loss, train_loss_names = model(batch, epoch=epoch)
             # print(loss)
@@ -407,7 +407,7 @@ for epoch in range(epoch_num):
     gold_dev_graphs, pred_dev_graphs, pred_dev_gold_input_graphs = [], [], []
     dev_sent_ids, dev_tokens = [], []
 
-    if epoch % 5 == 0 and not args.debug:
+    if epoch % 5 == 0:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
 
@@ -476,7 +476,7 @@ for epoch in range(epoch_num):
             best_dev_score = cur_dev_score
             is_best = True
 
-    if epoch % 5 == 0 and do_test:
+    if epoch % 5 == 0 and do_test and not(produce_outputs and not is_best):
 
         fact_dict_list = []
 
@@ -521,16 +521,18 @@ for epoch in range(epoch_num):
                 print('Test Set', ts_idx)
                 test_scores = score_graphs(gold_test_graphs, pred_test_graphs, not symmetric_rel)
 
-            print('Test', ts_idx, 'Gold Inputs')
-            test_g_i_scores = score_graphs(gold_test_graphs, pred_test_gold_input_graphs, not symmetric_rel, gold_inputs=True)
-
-
-            if not config.get("only_test_g_i"):
                 for k, v in test_scores.items():
                     writer.add_scalar('test_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
 
-            for k, v in test_g_i_scores.items():
-                writer.add_scalar('test_gi_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
+            if not produce_outputs:
+                print('Test', ts_idx, 'Gold Inputs')
+                test_g_i_scores = score_graphs(gold_test_graphs, pred_test_gold_input_graphs, not symmetric_rel, gold_inputs=True)
+
+                for k, v in test_g_i_scores.items():
+                    writer.add_scalar('test_gi_' + str(ts_idx) + '_' + k + '_f', v['f'], global_step)
+
+
+
 
     if epoch % 5 == 0 and config.get("use_sent_set"):
 

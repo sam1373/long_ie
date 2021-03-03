@@ -210,7 +210,12 @@ def score_graphs(gold_graphs, pred_graphs,
         gold_rel_num += len(gold_relations)
         pred_rel_num += len(pred_relations)
         cur_matched = 0
+
+        for g in gold_evidence:
+            gold_evi += len(g)
+
         for p_id, (arg1, arg2, rel_type) in enumerate(pred_relations):
+            pred_evi += len(pred_evidence[p_id])
             # arg1_start, arg1_end, _ = pred_entities[arg1]
             # arg2_start, arg2_end, _ = pred_entities[arg2]
             arg1 = pred_clusters_aligned[arg1]
@@ -227,8 +232,8 @@ def score_graphs(gold_graphs, pred_graphs,
                         cur_matched += 1
 
                         g, p, m = score_evidence(pred_evidence[p_id], gold_evidence[g_id])
-                        gold_evi += g
-                        pred_evi += p
+                        #gold_evi += g
+                        #pred_evi += p
                         match_evi += m
                         break
                 else:
@@ -239,8 +244,8 @@ def score_graphs(gold_graphs, pred_graphs,
                         cur_matched += 1
 
                         g, p, m = score_evidence(pred_evidence[p_id], gold_evidence[g_id])
-                        gold_evi += g
-                        pred_evi += p
+                        #gold_evi += g
+                        #pred_evi += p
                         match_evi += m
                         break
 
@@ -425,6 +430,7 @@ def score_graphs(gold_graphs, pred_graphs,
         'role_id': {'prec': role_id_prec, 'rec': role_id_rec, 'f': role_id_f},
         'relation': {'prec': relation_prec, 'rec': relation_rec,
                      'f': relation_f},
+        'evidence': {'prec': evi_prec, 'rec': evi_rec, 'f': evi_f},
         'macro_relation': {'prec': macro_relation_p, 'rec': macro_relation_r,
                            'f': macro_relation_f},
         'entity_clusters': {'prec': cluster_prec, 'rec': cluster_rec, 'f': cluster_f},

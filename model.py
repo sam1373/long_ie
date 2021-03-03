@@ -1072,10 +1072,18 @@ class LongIE(nn.Module):
             #evid_loss = -(evidence_true_for_cand * attn_sum).mean()
             evid_loss = -attn_sum[evidence_true_for_cand == 1].mean()
 
+            false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(-1) > 0)
+
+            evid_loss_neg = attn_sum[false_evid_true_rel].mean()
+
             #print(-attn_sum.mean(), evid_loss)
 
             loss.append(evid_loss)
             loss_names.append("evidence")
+
+            loss.append(evid_loss_neg)
+            loss_names.append("evidence_neg")
+
 
         if self.config.get("do_coref") and not self.config.get("only_train_g_i"):
 

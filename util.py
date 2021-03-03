@@ -522,6 +522,7 @@ def build_information_graph(batch,
 
         relations = []
         evidence = []
+        evid_scores = []
 
         if relation_pred is not None:
             cluster_num = cur_clusters.max() + 1
@@ -565,6 +566,7 @@ def build_information_graph(batch,
                                 if attn_cur[k] > 1:
                                     cur_evid.append(k)
                             evidence.append(cur_evid)
+                            evid_scores.append(attn_cur)
 
                         cur_idx += 1
 
@@ -575,6 +577,7 @@ def build_information_graph(batch,
 
         if relation_pred is not None:
             cur_graph.rel_probs = nonzero_final_probs
+            cur_graph.evid_scores = evid_scores
 
         graphs.append(cur_graph)
 
@@ -1087,16 +1090,26 @@ def summary_graph(pred_graph, true_graph, batch,
             arg1, arg2 = arg2, arg1
         prob_pred = F.log_softmax(pred_graph.rel_probs[i], dim=-1).tolist()
         prob_pred = max(prob_pred)
-        predicted_relations.append((arg1, arg2, t, prob_pred))
+        prob_pred = round(prob_pred, 2)
+        evid = []
+        if len(pred_graph.evidence) > i:
+            evid = pred_graph.evidence[i]
+            evid_scores = pred_graph.evid_scores[i]
+            for j in range(len(evid_scores)):
+                evid_scores[j] = round(evid_scores[j], 2)
+        predicted_relations.append((arg1, arg2, t, prob_pred, evid, evid_scores))
 
     true_relations = []
 
-    for (a, b, t) in true_graph.relations:
+    for i, (a, b, t) in enumerate(true_graph.relations):
         arg1 = true_entities[true_clusters[a][0]][0]
         arg2 = true_entities[true_clusters[b][0]][0]
         if arg1 > arg2:
             arg1, arg2 = arg2, arg1
-        true_relations.append((arg1, arg2, t))
+        evid = []
+        if len(true_graph.evidence) > i:
+            evid = true_graph.evidence[i]
+        true_relations.append((arg1, arg2, t, evid))
 
     writer.add_text(prefix + "predicted_relations", " ".join(str(predicted_relations)), global_step)
     writer.add_text(prefix + "true_relations", " ".join(str(true_relations)), global_step)
