@@ -190,7 +190,7 @@ class LongIE(nn.Module):
                  span_transformer_layers: int = 10,#10
                  encoder_dropout_prob: float = 0.,
                  type_embed_dim: int = 32,
-                 comp_dim: int = 128,
+                 comp_dim: int = 256,
                  ):
         super().__init__()
 
@@ -206,7 +206,7 @@ class LongIE(nn.Module):
         if self.config.get('use_sent_num_embed'):
             token_initial_dim += self.config.get('sent_num_embed_dim')
 
-
+        self.comp_dim = comp_dim
 
         #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
 
@@ -291,7 +291,7 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = ContextTransformer(comp_dim * 2)
+        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=6)
 
         """nn.Transformer(num_encoder_layers = 0,
                       num_decoder_layers = 3,
@@ -909,6 +909,10 @@ class LongIE(nn.Module):
 
                     sent_context_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
 
+                    #add additional thing to "offload" attention to
+                    sent_context_comp = torch.cat((sent_context_comp,
+                                                   torch.zeros(batch_size, 1, self.comp_dim * 2).cuda()), dim=1)
+
                     #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
@@ -916,7 +920,7 @@ class LongIE(nn.Module):
                                                                relation_cand_pairs.transpose(0, 1))
                     relation_cand_pairs = relation_cand_pairs.transpose(0, 1)
 
-                    attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)
+                    attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1]
 
                     #attn_sum[attn_sum < 1.] = 0.
 

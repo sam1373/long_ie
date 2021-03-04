@@ -29,6 +29,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 from tqdm import tqdm
 
+from optim import GradualWarmupScheduler
+
+
 #import torch_optimizer as optim
 
 import gc
@@ -264,9 +267,28 @@ if skip_train == False:
     #                           betas=(0.9, 0.999),
     #                           amsbound=False)
 
-    schedule = get_linear_schedule_with_warmup(optimizer,
-                                               num_warmup_steps=batch_num * config.warmup_epoch,
-                                               num_training_steps=batch_num * epoch_num)
+    #schedule = get_linear_schedule_with_warmup(optimizer,
+    #                                           num_warmup_steps=batch_num * config.warmup_epoch,
+    #                                           num_training_steps=batch_num * epoch_num)
+
+    schedule_reduce_lr = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                                    mode='max',
+                                                                    verbose=True,
+                                                                    patience=10
+                                                                    )
+
+    schedule = GradualWarmupScheduler(optimizer, multiplier=1, total_epoch=config.get("warmup_epoch"),
+                                      after_scheduler=schedule_reduce_lr)
+
+    schedule.step(epoch=0, metrics=0)
+
+"""for i in range(1, 120):
+    print(i)
+    print(schedule.get_lr()[0])
+
+    cur_score = float(input())
+
+    schedule.step(epoch=i, metrics=cur_score)"""
 
 # model state
 state = dict(model=model.state_dict(),
@@ -283,6 +305,8 @@ global_step = 0
 writer = SummaryWriter()
 
 do_test = config.get("do_test", True)
+
+cur_dev_score = 0
 
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
@@ -316,7 +340,7 @@ for epoch in range(epoch_num):
                 loss_sum.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
                 optimizer.step()
-                schedule.step()
+                #schedule.step()
                 optimizer.zero_grad()
                 # losses.append(loss.item())
                 # if len(losses) == 100:
@@ -475,6 +499,8 @@ for epoch in range(epoch_num):
             #torch.save(state, "model.pt")
             best_dev_score = cur_dev_score
             is_best = True
+
+    schedule.step(epoch=epoch + 1, metrics=cur_dev_score)
 
     if epoch % 5 == 0 and do_test and not(produce_outputs and not is_best):
 

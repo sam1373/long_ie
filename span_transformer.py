@@ -165,6 +165,7 @@ class ContextTransformer(nn.Module):
 
         super().__init__()
 
+        self.aggr_emb = nn.Parameter(torch.randn(hid_dim).cuda() * 0.1)
 
         self.attn, self.norm = [], []
 
@@ -184,6 +185,10 @@ class ContextTransformer(nn.Module):
         self.num_layers = num_layers
 
     def forward(self, context, x):
+
+        print(self.aggr_emb.min(), self.aggr_emb.max(), self.aggr_emb.mean())
+
+        x[:, -1] += self.aggr_emb
 
         attns = []
 
