@@ -1074,7 +1074,7 @@ class LongIE(nn.Module):
         if self.config.get("classify_evidence"):
 
             #evid_loss = -(evidence_true_for_cand * attn_sum).mean()
-            evid_loss = -attn_sum[evidence_true_for_cand == 1].mean()
+            evid_loss = -torch.clamp(attn_sum[evidence_true_for_cand == 1], max=1.2).mean()
 
             false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(-1) > 0)
 
