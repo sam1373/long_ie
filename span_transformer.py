@@ -186,8 +186,6 @@ class ContextTransformer(nn.Module):
 
     def forward(self, context, x):
 
-        print(self.aggr_emb.min(), self.aggr_emb.max(), self.aggr_emb.mean())
-
         x[:, -1] += self.aggr_emb
 
         attns = []
