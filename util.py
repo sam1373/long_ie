@@ -413,7 +413,8 @@ def build_information_graph(batch,
                             evidence_true_for_cand,
                             vocabs,
                             gold_inputs=False,
-                            symmetric_rel=True):
+                            symmetric_rel=True,
+                            extra=0):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
     relation_itos = {i: s for s, i in vocabs['relation'].items()}
@@ -563,7 +564,7 @@ def build_information_graph(batch,
 
                             cur_evid = []
                             for k in range(len(attn_cur)):
-                                if attn_cur[k] > 1:
+                                if attn_cur[k] > extra:
                                     cur_evid.append(k)
                             evidence.append(cur_evid)
                             evid_scores.append(attn_cur)

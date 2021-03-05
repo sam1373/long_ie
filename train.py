@@ -328,8 +328,8 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
-            #if args.debug and batch_idx == 500:
-            #    break
+            if args.debug and batch_idx == 200:
+                break
 
             loss, train_loss_names = model(batch, epoch=epoch)
             # print(loss)
@@ -428,8 +428,20 @@ for epoch in range(epoch_num):
                             batch_size,
                             shuffle=False,
                             collate_fn=dev_set.collate_fn)
-    gold_dev_graphs, pred_dev_graphs, pred_dev_gold_input_graphs = [], [], []
+    gold_dev_graphs = []
+    pred_dev_graphs, pred_dev_gold_input_graphs = [], []
     dev_sent_ids, dev_tokens = [], []
+
+    #additional values to be passed into build_information_graph
+    extra_values = [0.1, 0.3, 0.5, 0.7, 0.8, 1., 1.2]
+    extra_value_num = len(extra_values)
+
+    for j in range(extra_value_num):
+        pred_dev_graphs.append([])
+        pred_dev_gold_input_graphs.append([])
+
+    judge_value = "evidence"
+
 
     if epoch % 5 == 0:
 
@@ -437,7 +449,10 @@ for epoch in range(epoch_num):
 
             if not config.get("only_test_g_i"):
                 result = model.predict(batch, epoch=epoch)
-                pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
+                for j, ex_val in enumerate(extra_values):
+                    pred_graphs = build_information_graph(batch, *result, vocabs,
+                                                          symmetric_rel=symmetric_rel, extra=ex_val)
+                    pred_dev_graphs[j].extend(pred_graphs)
 
                 if len(batch.tokens[0]) < 400 and batch_idx < 20:
                     summary_graph(pred_graphs[0], batch.graphs[0], batch,
@@ -445,18 +460,17 @@ for epoch in range(epoch_num):
 
             result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
-            pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
-                                                             gold_inputs=True, symmetric_rel=symmetric_rel)
+            for j, ex_val in enumerate(extra_values):
+                pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
+                                                             gold_inputs=True, symmetric_rel=symmetric_rel,
+                                                                 extra=ex_val)
 
-            pred_dev_gold_input_graphs.extend(pred_gold_input_graphs)
+                pred_dev_gold_input_graphs[j].extend(pred_gold_input_graphs)
 
             if len(batch.tokens[0]) < 400 and batch_idx < 20:
                 summary_graph(pred_gold_input_graphs[0], batch.graphs[0], batch,
                           writer, global_step, "dev_gi_", vocabs, None, id=batch_idx)
 
-
-            if not config.get("only_test_g_i"):
-                pred_dev_graphs.extend(pred_graphs)
 
             gold_dev_graphs.extend(batch.graphs)
             dev_sent_ids.extend(batch.sent_ids)
@@ -466,36 +480,53 @@ for epoch in range(epoch_num):
         # pred_dev_graphs = [g.clean(False)
         #                    for g in pred_dev_graphs]
 
-        if not config.get("only_test_g_i"):
-            print('Dev')
-            dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs, not symmetric_rel)
+        #dev_scores = []
+        #dev_g_i_scores = []
+        best_dev_scores = None
+        best_dev_g_i_scores = None
 
-        print('Dev Gold Inputs')
-        dev_g_i_scores = score_graphs(gold_dev_graphs, pred_dev_gold_input_graphs, not symmetric_rel)
-        """save_result(os.path.join(output_path, 'dev.result.{}.json'.format(epoch)),
-                    gold_dev_graphs,
-                    pred_dev_graphs,
-                    dev_sent_ids,
-                    tokens=dev_tokens)"""
+        best_ex_val = -1
+        best_ex_val_res = 0
+
+        for j, ex_val in enumerate(extra_values):
+            print('Extra Value:', ex_val)
+            dev_scores = None
+            if not config.get("only_test_g_i"):
+                print('Dev')
+                dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs[j], not symmetric_rel)
+
+            print('Dev Gold Inputs')
+            dev_g_i_scores = score_graphs(gold_dev_graphs, pred_dev_gold_input_graphs[j], not symmetric_rel)
+
+            cur_judge_value = dev_g_i_scores[judge_value]['f']
+            if not config.get("only_test_g_i"):
+                cur_judge_value = dev_scores[judge_value]['f']
+
+            if cur_judge_value > best_ex_val_res:
+                best_ex_val = ex_val
+                best_ex_val_res = cur_judge_value
+                best_dev_scores = dev_scores
+                best_dev_g_i_scores = dev_g_i_scores
 
         #writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
+        writer.add_scalar('best_ex_val', best_ex_val, global_step)
 
         if not config.get("only_test_g_i"):
-            for k, v in dev_scores.items():
+            for k, v in best_dev_scores.items():
                 writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
 
-        for k, v in dev_g_i_scores.items():
+        for k, v in best_dev_g_i_scores.items():
             writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
-        score_to_use = "relation"
 
         if config.get("only_test_g_i"):
-            cur_dev_score = dev_g_i_scores[score_to_use]['f']
+            cur_dev_score = best_dev_g_i_scores[judge_value]['f']
         else:
-            cur_dev_score = dev_scores[score_to_use]['f']
+            cur_dev_score = best_dev_scores[judge_value]['f']
 
         if cur_dev_score > best_dev_score:
-            print('Saving res for best dev model by ' + score_to_use)
+            print('Saving res for best dev model by ' + judge_value)
+            print('Best extra value:', best_ex_val)
             #torch.save(state, "model.pt")
             best_dev_score = cur_dev_score
             is_best = True
@@ -520,12 +551,14 @@ for epoch in range(epoch_num):
 
                 if not config.get("only_test_g_i"):
                     result = model.predict(batch)
-                    pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel)
+                    pred_graphs = build_information_graph(batch, *result, vocabs, symmetric_rel=symmetric_rel,
+                                                          extra=best_ex_val)
 
                 result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
                 pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
-                                                                 gold_inputs=True, symmetric_rel=symmetric_rel)
+                                                                 gold_inputs=True, symmetric_rel=symmetric_rel,
+                                                                 extra=best_ex_val)
 
                 pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
 
