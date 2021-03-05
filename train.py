@@ -274,7 +274,7 @@ if skip_train == False:
     schedule_reduce_lr = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                                     mode='max',
                                                                     verbose=True,
-                                                                    patience=10
+                                                                    patience=20
                                                                     )
 
     schedule = GradualWarmupScheduler(optimizer, multiplier=1, total_epoch=config.get("warmup_epoch"),

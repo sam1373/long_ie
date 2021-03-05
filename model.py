@@ -916,9 +916,11 @@ class LongIE(nn.Module):
                     #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
-                    relation_cand_pairs, attns = self.rel_transformer(sent_context_comp.transpose(0, 1),
+                    relation_cand_pairs_trans, attns = self.rel_transformer(sent_context_comp.transpose(0, 1),
                                                                relation_cand_pairs.transpose(0, 1))
-                    relation_cand_pairs = relation_cand_pairs.transpose(0, 1)
+                    relation_cand_pairs_trans = relation_cand_pairs_trans.transpose(0, 1)
+
+                    relation_cand_pairs = relation_cand_pairs + relation_cand_pairs_trans
 
                     attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1]
 

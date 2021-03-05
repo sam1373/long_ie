@@ -194,8 +194,10 @@ class ContextTransformer(nn.Module):
 
             x1, attn = self.attn[i](x, context, context)
             attns.append(attn)
-            x1 = self.norm[i](x1)
+            #x1 = self.norm[i](x1)
 
-            x = x + x1 * 0.05
+            x = x + x1
+
+            x = self.norm[i](x)
 
         return x, attns
