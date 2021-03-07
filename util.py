@@ -1362,9 +1362,9 @@ def get_facts(graphs, titles, rev_dict):
     facts = []
 
     for (title, graph) in zip(titles, graphs):
-        for i, (h, t, r_text) in enumerate(graph.relations):
-            r_sep = r_text.split("|")
-            r_rev = [rev_dict[r_i] for r_i in r_sep]
+        for i, (h, t, r_type) in enumerate(graph.relations):
+            #r_sep = r_text.split("|")
+            r_rev = [rev_dict[r_i] for r_i in r_type]
             for r in r_rev:
                 facts.append({
                     "title": title,
