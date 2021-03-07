@@ -414,6 +414,7 @@ def build_information_graph(batch,
                             vocabs,
                             gold_inputs=False,
                             symmetric_rel=True,
+                            config=None,
                             extra=0):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
@@ -552,23 +553,40 @@ def build_information_graph(batch,
 
                     any_probs = rel_matrix_nonzero[i, j]
 
-                    if rel_cand[i, j]:
 
-                        rel_pred = relation_pred[graph_idx, cur_idx].argmax().item()
+                    if any_probs[-1] > extra[1] and rel_cand[i, j]:
+
+                        predicted_not_zero = False
+
+                        if config.get("relation_type_level") != "multitype":
+
+                            rel_pred = relation_pred[graph_idx, cur_idx].argmax().item()
+                            if rel_pred > 0:
+                                predicted_not_zero = True
+                            rel_pred = relation_itos[rel_pred]
+
+                        else:
+
+                            rel_pred_scores = relation_pred[graph_idx, cur_idx]
+                            rel_pred_types = (rel_pred_scores > extra[2]).float().nonzero().view(-1).tolist()
+                            if len(rel_pred_types) > 0:
+                                predicted_not_zero = True
+                            rel_pred = [relation_itos[i] for i in rel_pred_types]
 
                         attn_cur = attn_sum[graph_idx, cur_idx].tolist()
 
-                        if rel_pred > 0:
-                            relations.append((i, j, relation_itos[rel_pred]))
+                        if predicted_not_zero:
+                            relations.append((i, j, rel_pred))
                             nonzero_final_probs.append(relation_pred[graph_idx, cur_idx])
 
                             cur_evid = []
                             for k in range(len(attn_cur)):
-                                if attn_cur[k] > extra:
+                                if attn_cur[k] > extra[0]:
                                     cur_evid.append(k)
                             evidence.append(cur_evid)
                             evid_scores.append(attn_cur)
 
+                    if rel_cand[i, j]:
                         cur_idx += 1
 
                     # if rel_cand[i, j]:
@@ -1283,10 +1301,10 @@ class RegLayer(nn.Module):
         self.s = s
 
     def forward(self, x):
-        """if self.training:
+        if self.training:
             r = torch.randn(x.shape).cuda() * self.s
             x = x * (r + 1.)
-            del r"""
+            del r
 
         # x = self.drop(x)
 
@@ -1302,7 +1320,7 @@ class RegLayer(nn.Module):
 import networkx as nx
 
 
-def draw_network(entities, clusters, relations, writer, prefix, global_step, id, create_images=False):
+def draw_network(entities, clusters, relations, writer=None, prefix="ex", global_step=None, id=0, create_images=False):
     ents = []
 
     for cl_id, cl in enumerate(clusters):
@@ -1314,7 +1332,7 @@ def draw_network(entities, clusters, relations, writer, prefix, global_step, id,
     rels = []
 
     for a, b, t in relations:
-        rels.append((ents[a][0], ents[b][0], {"label": t}))
+        rels.append((ents[a][0], ents[b][0], {"label": str(t)}))
 
     G = nx.Graph()
 

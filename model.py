@@ -239,6 +239,9 @@ class LongIE(nn.Module):
 
         self.relation_clf = Linears([comp_dim * 2, hidden_dim, len(vocabs['relation'])])
 
+        if self.config.get("relation_type_level") == "multitype":
+            self.relation_clf = nn.Sequential(self.relation_clf, nn.Sigmoid())
+
         self.coref_embed = Linears([self.entity_dim, hidden_dim, coref_embed_dim])
 
         self.type_embed = nn.Embedding(len(vocabs['entity']), type_embed_dim)
@@ -322,7 +325,12 @@ class LongIE(nn.Module):
 
         self.entity_loss = nn.CrossEntropyLoss(weight=entity_weights)
         self.event_loss = nn.CrossEntropyLoss(weight=event_weights)
-        self.relation_loss = nn.CrossEntropyLoss(weight=rel_weights)
+
+        if self.config.get("relation_type_level") == "multitype":
+            self.relation_loss = nn.BCELoss()
+        else:
+            self.relation_loss = nn.CrossEntropyLoss(weight=rel_weights)
+
         self.role_loss = nn.CrossEntropyLoss(weight=role_weights)
 
         self.relation_nonzero_loss = nn.CrossEntropyLoss(weight=torch.Tensor([0.05, 1.]).cuda())
@@ -822,14 +830,15 @@ class LongIE(nn.Module):
 
                 if not predict:
                     relation_cand = elem_max((relation_any.argmax(-1) == 1),
-                                         (batch.relation_labels.view(batch_size, -1) > 0))
+                                         (batch.relation_nonzero.view(batch_size, -1)))
 
                     if not gold_inputs:
                         relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.9
                         relation_cand[relation_cand_neg_sample_mask] = 1
 
                 else:
-                    relation_cand = (relation_any.argmax(-1) == 1)
+                    #want more candidates for predict, later thresholded by build_information_graph
+                    relation_cand = (relation_any[:, :, -1] > 0.1)
 
 
                 """if not predict:
@@ -848,7 +857,7 @@ class LongIE(nn.Module):
                         relation_cand[:, 500:] = 0.
                         total_rel_cand = relation_cand.sum()
                     if not predict:
-                        relation_cand = (batch.relation_labels.view(batch_size, -1) > 0)
+                        relation_cand = (batch.relation_nonzero.view(batch_size, -1))
                         total_rel_cand = relation_cand.sum()
 
 
@@ -879,7 +888,8 @@ class LongIE(nn.Module):
                 if not (predict and total_rel_cand > 500):
                     relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs_proj_2.shape[-1]).cuda()
                     if not predict:
-                        relation_true_for_cand = torch.zeros(batch_size, total_rel_cand).cuda().long()
+                        relation_true_for_cand = torch.zeros((batch_size, total_rel_cand) +
+                                                             batch.relation_labels.shape[3:]).cuda().long()
                         evidence_true_for_cand = torch.zeros(batch_size, total_rel_cand, sent_context.shape[-2]).cuda()
                     cur_idx = 0
                     for b in range(batch_size):
@@ -1078,17 +1088,17 @@ class LongIE(nn.Module):
             #evid_loss = -(evidence_true_for_cand * attn_sum).mean()
             evid_loss = -torch.clamp(attn_sum[evidence_true_for_cand == 1], max=1.2).mean()
 
-            false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(-1) > 0)
+            #false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(-1) > 0)
 
-            evid_loss_neg = attn_sum[false_evid_true_rel].mean()
+            #evid_loss_neg = attn_sum[false_evid_true_rel].mean()
 
             #print(-attn_sum.mean(), evid_loss)
 
             loss.append(evid_loss)
             loss_names.append("evidence")
 
-            loss.append(evid_loss_neg)
-            loss_names.append("evidence_neg")
+            #loss.append(evid_loss_neg)
+            #loss_names.append("evidence_neg")
 
 
         if self.config.get("do_coref") and not self.config.get("only_train_g_i"):
@@ -1222,15 +1232,15 @@ class LongIE(nn.Module):
             #relation_pred = relation_pred.view(-1, relation_pred.shape[-1])
 
             relation_nonzero_loss = self.relation_nonzero_loss(relation_any.view(-1, 2),
-                                                  (batch.relation_labels.view(-1) > 0).long())
+                                                  (batch.relation_nonzero.view(-1)).long())
 
             #print("rels")
             #print("candidates:", relation_pred.shape[1])
             #print("predicted as non-zero:", (relation_pred.argmax(-1) > 0).long().sum())
             #print("gold:", (batch.relation_labels.view(-1) > 0).long().sum())
 
-            relation_any_cont_gold = elem_min(relation_any.argmax(-1).view(-1),
-                                              (batch.relation_labels.view(-1) > 0).long())
+            """relation_any_cont_gold = elem_min(relation_any.argmax(-1).view(-1),
+                                              (batch.relation_nonzero.view(-1)).long())
 
             #print("intersect:", relation_any_cont_gold.sum())
 
@@ -1239,12 +1249,16 @@ class LongIE(nn.Module):
 
             #print("predicted right:", rel_pred_correct.sum())
 
-            rel_pred_correct_nonzero = elem_min(rel_pred_correct, (relation_true_for_cand.view(-1) > 0))
+            rel_pred_correct_nonzero = elem_min(rel_pred_correct, (relation_true_for_cand.view(-1) > 0))"""
 
             #print("predicted right non-zero:", rel_pred_correct_nonzero.sum())
 
-            relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
-                                          relation_true_for_cand.view(-1)) * 5
+            if self.config.get("relation_type_level") == "multitype":
+                relation_loss = self.relation_loss(relation_pred.view(-1),
+                                          relation_true_for_cand.view(-1).float())
+            else:
+                relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
+                                          relation_true_for_cand.view(-1))
 
             #relation_loss = self.relation_loss(relation_pred,
             #                                   batch.relation_labels.view(-1)[:relation_pred.shape[0]]) * 5.

@@ -115,16 +115,17 @@ def compute_cluster_metrics(predicted_clusters, gold_clusters, predicted_entitie
     return len(matched_gold)
 
 
-def score_evidence(pred_evid, gold_evid):
+def score_lists(pred_evid, gold_evid):
     return len(gold_evid), len(pred_evid), len(set(pred_evid).intersection(set(gold_evid)))
 
 
 def score_graphs(gold_graphs, pred_graphs,
-                 relation_directional=False, gold_inputs=False):
+                 relation_directional=False, gold_inputs=False, multitype=False):
     gold_arg_num = pred_arg_num = arg_idn_num = arg_class_num = 0
     gold_trigger_num = pred_trigger_num = trigger_idn_num = trigger_class_num = 0
     gold_ent_num = pred_ent_num = ent_match_num = ent_overlap_match_num = 0
     gold_rel_num = pred_rel_num = rel_match_num = 0
+    gold_nonzero_rel_num = pred_nonzero_rel_num = nonzero_rel_match_num = 0
     gold_men_num = pred_men_num = men_match_num = 0
     # gold_cluster_matched = gold_cluster_total = pred_cluster_total = 0
     cluster_p = cluster_r = 0
@@ -207,9 +208,18 @@ def score_graphs(gold_graphs, pred_graphs,
         pred_relations = pred_graph.relations
         gold_evidence = gold_graph.evidence
         pred_evidence = pred_graph.evidence
-        gold_rel_num += len(gold_relations)
-        pred_rel_num += len(pred_relations)
-        cur_matched = 0
+
+        gold_nonzero_rel_num += len(gold_relations)
+        pred_nonzero_rel_num += len(pred_relations)
+
+        if not multitype:
+            gold_rel_num += len(gold_relations)
+            pred_rel_num += len(pred_relations)
+        else:
+            gold_rel_num += sum([len(i.type) for i in gold_relations])
+            pred_rel_num += sum([len(i.type) for i in pred_relations])
+
+        # cur_matched = 0
 
         for g in gold_evidence:
             gold_evi += len(g)
@@ -225,31 +235,24 @@ def score_graphs(gold_graphs, pred_graphs,
             for g_id, (arg1_gold, arg2_gold, rel_type_gold) in enumerate(gold_relations):
                 # arg1_start_gold, arg1_end_gold, _ = gold_entities[arg1_gold]
                 # arg2_start_gold, arg2_end_gold, _ = gold_entities[arg2_gold]
-                if relation_directional:
-                    if (arg1 == arg1_gold and arg2 == arg2_gold
-                    ) and rel_type == rel_type_gold:
+                if (arg1 == arg1_gold and arg2 == arg2_gold
+                ) or (arg1 == arg2_gold and arg2 == arg1_gold and not relation_directional):
+
+                    nonzero_rel_match_num += 1
+
+                    g, p, m = score_lists(pred_evidence[p_id], gold_evidence[g_id])
+
+                    match_evi += m
+
+                    if rel_type == rel_type_gold and not multitype:
                         rel_match_num += 1
-                        cur_matched += 1
+                    elif multitype:
+                        r_g, r_p, r_m = score_lists(rel_type_gold, rel_type)
+                        rel_match_num += r_m
 
-                        g, p, m = score_evidence(pred_evidence[p_id], gold_evidence[g_id])
-                        #gold_evi += g
-                        #pred_evi += p
-                        match_evi += m
-                        break
-                else:
-                    if ((arg1 == arg1_gold and arg2 == arg2_gold) or (
-                            arg1 == arg2_gold and arg2 == arg1_gold
-                    )) and rel_type == rel_type_gold:
-                        rel_match_num += 1
-                        cur_matched += 1
+                    break
 
-                        g, p, m = score_evidence(pred_evidence[p_id], gold_evidence[g_id])
-                        #gold_evi += g
-                        #pred_evi += p
-                        match_evi += m
-                        break
-
-        if len(gold_relations) == 0:
+        """if len(gold_relations) == 0:
             cur_rel_r = 1.
         else:
             cur_rel_r = cur_matched / len(gold_relations)
@@ -262,7 +265,7 @@ def score_graphs(gold_graphs, pred_graphs,
             cur_rel_p = cur_matched / len(pred_relations)
 
         relation_r += cur_rel_r
-        relation_p += cur_rel_p
+        relation_p += cur_rel_p"""
 
         # Trigger
         gold_triggers = gold_graph.triggers
@@ -360,6 +363,8 @@ def score_graphs(gold_graphs, pred_graphs,
         pred_trigger_num, gold_trigger_num, trigger_class_num)
     relation_prec, relation_rec, relation_f = compute_f1(
         pred_rel_num, gold_rel_num, rel_match_num)
+    nonzero_relation_prec, nonzero_relation_rec, nonzero_relation_f = compute_f1(
+        pred_nonzero_rel_num, gold_nonzero_rel_num, nonzero_rel_match_num)
     role_id_prec, role_id_rec, role_id_f = compute_f1(
         pred_arg_num, gold_arg_num, arg_idn_num)
     role_prec, role_rec, role_f = compute_f1(
@@ -374,9 +379,9 @@ def score_graphs(gold_graphs, pred_graphs,
     cluster_rec = cluster_r / len(gold_graphs)
     cluster_f = harmonic_mean((cluster_prec, cluster_rec))
 
-    macro_relation_r = relation_r / len(gold_graphs)
-    macro_relation_p = relation_p / len(gold_graphs)
-    macro_relation_f = harmonic_mean((macro_relation_r, macro_relation_p))
+    # macro_relation_r = relation_r / len(gold_graphs)
+    # macro_relation_p = relation_p / len(gold_graphs)
+    # macro_relation_f = harmonic_mean((macro_relation_r, macro_relation_p))
 
     t_cluster_prec = t_cluster_p / len(gold_graphs)
     t_cluster_rec = t_cluster_r / len(gold_graphs)
@@ -402,10 +407,12 @@ def score_graphs(gold_graphs, pred_graphs,
         trigger_prec * 100.0, trigger_rec * 100.0, trigger_f * 100.0))
     print('Relation: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         relation_prec * 100.0, relation_rec * 100.0, relation_f * 100.0))
+    print('Non-zero Relation: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+        nonzero_relation_prec * 100.0, nonzero_relation_rec * 100.0, nonzero_relation_f * 100.0))
     print('Evidence: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         evi_prec * 100.0, evi_rec * 100.0, evi_f * 100.0))
-    print('Macro Relation: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
-        macro_relation_p * 100.0, macro_relation_r * 100.0, macro_relation_f * 100.0))
+    # print('Macro Relation: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+    #    macro_relation_p * 100.0, macro_relation_r * 100.0, macro_relation_f * 100.0))
     print('Role identification: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         role_id_prec * 100.0, role_id_rec * 100.0, role_id_f * 100.0))
     print('Role: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
@@ -431,8 +438,8 @@ def score_graphs(gold_graphs, pred_graphs,
         'relation': {'prec': relation_prec, 'rec': relation_rec,
                      'f': relation_f},
         'evidence': {'prec': evi_prec, 'rec': evi_rec, 'f': evi_f},
-        'macro_relation': {'prec': macro_relation_p, 'rec': macro_relation_r,
-                           'f': macro_relation_f},
+        'nonzero_relation': {'prec': nonzero_relation_prec, 'rec': nonzero_relation_rec,
+                           'f': nonzero_relation_f},
         'entity_clusters': {'prec': cluster_prec, 'rec': cluster_rec, 'f': cluster_f},
         'cluster_matched': {'prec': matched_p, 'rec': matched_r, 'f': matched_f},
         'trigger_clusters': {'prec': t_cluster_prec, 'rec': t_cluster_rec, 'f': t_cluster_f},

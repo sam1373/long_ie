@@ -78,6 +78,7 @@ class Batch:
     type_from_here_ev: torch.LongTensor
     sent_nums: torch.LongTensor
     evidence_labels: torch.LongTensor
+    relation_nonzero: torch.BoolTensor
 
     @property
     def batch_size(self):
@@ -295,7 +296,7 @@ class Relation:
         return '{}.{}'.format(self.relation_id, self.mention_id)
 
     def get_type(self, level: str = 'type'):
-        if level == 'type':
+        if level == 'type' or level == 'multitype':
             return self.relation_type
         elif level == 'subtype':
             return '{}.{}'.format(self.relation_type, self.relation_subtype)
@@ -527,22 +528,23 @@ class IEDataset(Dataset):
                     if relation_type_level == 'multitype':
                         for type in relation.relation_type:
                             relation_type_set.add(type)
-                    elif relation_type_level == 'type':
-                        relation_type = relation.relation_type
-                    elif relation_type_level == 'subtype':
-                        relation_type = '{}.{}'.format(
-                            relation.relation_type,
-                            relation.relation_subtype)
-                    elif relation_type_level == 'subsubtype':
-                        relation_type = '{}.{}.{}'.format(
-                            relation.relation_type,
-                            relation.relation_subtype,
-                            relation.relation_subsubtype)
                     else:
-                        raise ValueError('Unknown type level: {}'.format(
-                            relation_type_level))
+                        if relation_type_level == 'type':
+                            relation_type = relation.relation_type
+                        elif relation_type_level == 'subtype':
+                            relation_type = '{}.{}'.format(
+                                relation.relation_type,
+                                relation.relation_subtype)
+                        elif relation_type_level == 'subsubtype':
+                            relation_type = '{}.{}.{}'.format(
+                                relation.relation_type,
+                                relation.relation_subtype,
+                                relation.relation_subsubtype)
+                        else:
+                            raise ValueError('Unknown type level: {}'.format(
+                                relation_type_level))
 
-                    relation_type_set.add(relation_type)
+                        relation_type_set.add(relation_type)
         return relation_type_set
 
     @property
@@ -847,12 +849,15 @@ class IEDataset(Dataset):
         instance['relation_num'] = len(sentence.relations)
         for relation in sentence.relations:
             relation_type = relation.get_type(relation_type_level)
-            relation.relation_type_idx = relation_type_stoi[relation_type]
+            if self.config.get("relation_type_level") == "multitype":
+                relation.relation_type_idx = [relation_type_stoi[i] for i in relation_type]
+            else:
+                relation.relation_type_idx = relation_type_stoi[relation_type]
             #relation.is_symmetric = ontology.is_symmetric(relation_type)
 
-            relation_type_rev = '{}_rev'.format(relation_type)
-            if relation_type_rev in relation_type_stoi:
-                relation.relation_type_idx_rev = relation_type_stoi[relation_type_rev]
+            #relation_type_rev = '{}_rev'.format(relation_type)
+            #if relation_type_rev in relation_type_stoi:
+            #    relation.relation_type_idx_rev = relation_type_stoi[relation_type_rev]
         for event in sentence.events:
             for arg in event.arguments:
                 arg.role_idx = role_stoi[arg.role]
@@ -880,14 +885,20 @@ class IEDataset(Dataset):
 
         cluster_num = max(mention_to_ent, default=0) + 1
 
-        labels = [[0 for j in range(cluster_num)] for i in range(cluster_num)]
+        labels_nonzero = [[False for j in range(cluster_num)] for i in range(cluster_num)]
+
+        if relation_type_level != "multitype":
+            labels = [[0 for j in range(cluster_num)] for i in range(cluster_num)]
+        else:
+            labels = [[[0 for k in range(len(self.vocabs["relation"]))] for j in range(cluster_num)] for i in range(cluster_num)]
+
         evidence = [[[0 for k in range(total_sents)] for j in range(cluster_num)] for i in range(cluster_num)]
 
-        relations_cl_set = set()
+        rel_added = set()
+        relations_cl = []
 
         for rel_id, relation in enumerate(relations):
             relation_type = relation.relation_type_idx
-            relation_type_rev = relation.relation_type_idx_rev
             #arg1 = relation.arg1.uid
             #arg2 = relation.arg2.uid
             arg1 = mention_id_dict[relation.arg1.mention_id]
@@ -901,24 +912,29 @@ class IEDataset(Dataset):
                 if sent < total_sents:
                     evidence[c_i][c_j][sent] = 1
 
+            if relation_type_level == "multitype":
+                relation_type = [int(k in relation_type) for k in range(len(self.vocabs["relation"]))]
+
             if self.config.get("symmetric_relations"):
                 labels[c_i][c_j] = labels[c_j][c_i] = relation_type
+                labels_nonzero[c_i][c_j] = labels_nonzero[c_j][c_i] = True
                 for sent in relation.evidence:
                     evidence[c_j][c_i][sent] = 1
             else:
                 labels[c_i][c_j] = relation_type
-
+                labels_nonzero[c_i][c_j] = True
 
 
             if self.config.get("symmetric_relations") and c_i > c_j:
                 c_i, c_j = c_j, c_i
 
-            relations_cl_set.add((c_i, c_j, relation.get_type(relation_type_level)))
+            #relations_cl_set.add((c_i, c_j, relation.get_type(relation_type_level)))
+            if not (c_i, c_j) in rel_added:
+                relations_cl.append((c_i, c_j, relation.get_type(relation_type_level)))
+            rel_added.add((c_i, c_j))
 
-        relations_cl = list(relations_cl_set)
 
-
-        return labels, relations_cl, evidence
+        return labels, labels_nonzero, relations_cl, evidence
 
     def get_relation_labels(self, relations, entities, graph, entity_uids):
         #also adds missing relations to rels list
@@ -1057,6 +1073,7 @@ class IEDataset(Dataset):
 
         # Relation and arg role labels
         relation_labels, role_labels = [], []
+        relation_nonzero = []
         evidence_labels = []
 
         entity_labels_sep, trigger_labels_sep = [], []
@@ -1281,7 +1298,8 @@ class IEDataset(Dataset):
 
             total_sents = max(sent_num) + 1
 
-            inst_relation_labels_cl, relations_cl, inst_evidence = self.get_relation_labels_for_clusters(inst['relations'],
+            inst_relation_labels_cl, inst_nonzero_relations, \
+            relations_cl, inst_evidence = self.get_relation_labels_for_clusters(inst['relations'],
                                                                           inst_mention_to_ent_coref,
                                                                           mention_id_dict,
                                                                           total_sents)
@@ -1317,6 +1335,7 @@ class IEDataset(Dataset):
             relation_labels_sep.append(inst_relation_labels_cl)
 
             relation_labels.append(inst_relation_labels_cl)
+            relation_nonzero.append(inst_nonzero_relations)
 
             evidence_labels.append(inst_evidence)
 
@@ -1356,6 +1375,7 @@ class IEDataset(Dataset):
             pos_trigger_idxs = torch.cuda.LongTensor(pos_trigger_idxs)
 
             relation_labels = torch.cuda.LongTensor(relation_labels)
+            relation_nonzero = torch.cuda.BoolTensor(relation_nonzero)
             role_labels = torch.cuda.LongTensor(role_labels)
             evidence_labels = torch.cuda.LongTensor(evidence_labels)
 
@@ -1479,5 +1499,6 @@ class IEDataset(Dataset):
             len_from_here_ev=len_from_here_ev,
             type_from_here_ev=type_from_here_ev,
             sent_nums=sent_nums,
-            evidence_labels=evidence_labels
+            evidence_labels=evidence_labels,
+            relation_nonzero=relation_nonzero
         )
