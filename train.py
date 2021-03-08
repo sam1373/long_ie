@@ -312,11 +312,20 @@ cur_dev_score = 0
 # additional values to be passed into build_information_graph
 
 # evidence threshold
-extra_values_0 = [0.2, 0.4, 0.6]
+extra_values_0 = [0.5]
 # non-zero relation cand threshold
-extra_values_1 = [0.1, 0.2, 0.3]
+extra_values_1 = [0.1]
 # relation type prediction threshold
 # extra_values_2 = [0.2, 0.3, 0.4]
+
+extra_values = []
+
+for i in extra_values_0:
+    for j in extra_values_1:
+        #for k in extra_values_2:
+        extra_values.append([i, j])
+
+extra_value_num = len(extra_values)
 
 rel_type_thr = [0.3 for i in range(len(vocabs['relation']))]
 
@@ -405,14 +414,7 @@ for epoch in range(epoch_num):
 
 
 
-    extra_values = []
 
-    for i in extra_values_0:
-        for j in extra_values_1:
-            #for k in extra_values_2:
-            extra_values.append([i, j])
-
-    extra_value_num = len(extra_values)
 
     for j in range(extra_value_num):
         pred_dev_graphs.append([])
@@ -516,12 +518,17 @@ for epoch in range(epoch_num):
 
         adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"])
 
-        print(rel_type_thr)
-
         if config.get("only_test_g_i"):
-            cur_dev_score = best_dev_g_i_scores[judge_value]['f']
+            cur_dev_score = best_dev_g_i_scores[judge_value]
         else:
-            cur_dev_score = best_dev_scores[judge_value]['f']
+            cur_dev_score = best_dev_scores[judge_value]
+
+        if cur_dev_score['prec'] > cur_dev_score['rec'] + 0.03:
+            extra_values[0][0] -= 0.05
+        elif cur_dev_score['prec'] < cur_dev_score['rec'] - 0.03:
+            extra_values[0][0] += 0.05
+
+        cur_dev_score = cur_dev_score['f']
 
         if cur_dev_score > best_dev_score:
             print('Saving res for best dev model by ' + judge_value)
