@@ -423,7 +423,7 @@ for epoch in range(epoch_num):
     judge_value = "evidence"
 
 
-    if epoch % 1 == 0:
+    if epoch % 5 == 0:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
 
@@ -506,8 +506,6 @@ for epoch in range(epoch_num):
         for k, v in best_dev_g_i_scores.items():
             writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
-        print(rel_type_thr)
-
         print("Relation Class Metrics:")
         for (rel_type, metrics) in rel_class_stats.items():
             print(rel_type, "~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
@@ -516,7 +514,7 @@ for epoch in range(epoch_num):
                   "f:", round(metrics['f'], 2))
 
 
-        adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"])
+        adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
 
         if config.get("only_test_g_i"):
             cur_dev_score = best_dev_g_i_scores[judge_value]

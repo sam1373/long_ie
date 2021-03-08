@@ -542,7 +542,7 @@ def build_information_graph(batch,
             rel_matrix_nonzero = relation_any[graph_idx].view(cluster_num, cluster_num, -1)
             cur_idx = 0
 
-            #print(rel_matrix_nonzero.argmax(-1).sum())
+            # print(rel_matrix_nonzero.argmax(-1).sum())
 
             nonzero_final_probs = []
 
@@ -560,7 +560,6 @@ def build_information_graph(batch,
                         continue
 
                     any_probs = rel_matrix_nonzero[i, j]
-
 
                     if any_probs[-1] > extra[1] and rel_cand[i, j]:
 
@@ -788,9 +787,9 @@ def summary_graph(pred_graph, true_graph, batch,
 
     # cur_idx = 0
 
-    #print(entity_num, entity_num ** 2)
-    #print(len(batch.pos_entity_offsets[0]))
-    #print(batch.coref_labels.shape)
+    # print(entity_num, entity_num ** 2)
+    # print(len(batch.pos_entity_offsets[0]))
+    # print(batch.coref_labels.shape)
 
     coref_entities, true_clusters = get_coref_clusters(batch.coref_labels[0])
 
@@ -1366,12 +1365,11 @@ def draw_network(entities, clusters, relations, writer=None, prefix="ex", global
 
 
 def get_facts(graphs, titles, rev_dict):
-
     facts = []
 
     for (title, graph) in zip(titles, graphs):
         for i, (h, t, r_type) in enumerate(graph.relations):
-            #r_sep = r_text.split("|")
+            # r_sep = r_text.split("|")
             r_rev = [rev_dict[r_i] for r_i in r_type]
             for r in r_rev:
                 facts.append({
@@ -1384,8 +1382,8 @@ def get_facts(graphs, titles, rev_dict):
 
     return facts
 
-def get_rev_dict(rel_info_path):
 
+def get_rev_dict(rel_info_path):
     rel_info = open(rel_info_path, 'r', encoding='utf-8')
 
     rel_info = json.loads(rel_info.readline())
@@ -1398,9 +1396,8 @@ def get_rev_dict(rel_info_path):
     return rev_dict
 
 
-def adjust_thresholds(thr, stats, vocabs):
-
-    #new_thr = [i for i in thr]
+def adjust_thresholds(thr, stats, vocabs, ep=0):
+    # new_thr = [i for i in thr]
 
     for type, metrics in stats.items():
         idx = vocabs[type]
@@ -1416,7 +1413,13 @@ def adjust_thresholds(thr, stats, vocabs):
         if prec > rec:
             thr_delta *= -1
 
+        if prec < 0.01:
+            thr_delta = 0.05
+
+        if ep > 60 or abs(thr[idx]) < 0.1 or abs(thr[idx] - 1) < 0.1:
+            thr_delta *= 0.01
+
         thr[idx] += thr_delta
 
-        thr[idx] = max(thr[idx], 0.05)
-        thr[idx] = min(thr[idx], 0.95)
+        thr[idx] = max(thr[idx], 0.01)
+        thr[idx] = min(thr[idx], 0.99)
