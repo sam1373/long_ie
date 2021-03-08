@@ -3,13 +3,14 @@
 from util import get_coref_clusters, align_pred_to_gold, clusters_from_cluster_labels
 import math
 from statistics import harmonic_mean
+from collections import defaultdict
 
 
 def safe_div(num, denom):
     if denom > 0:
         return num / denom
     else:
-        return 0
+        return 1
 
 
 def compute_f1(predicted, gold, matched):
@@ -120,7 +121,7 @@ def score_lists(pred_evid, gold_evid):
 
 
 def score_graphs(gold_graphs, pred_graphs,
-                 relation_directional=False, gold_inputs=False, multitype=False):
+                 relation_directional=False, gold_inputs=False, multitype=False, return_class_scores=False):
     gold_arg_num = pred_arg_num = arg_idn_num = arg_class_num = 0
     gold_trigger_num = pred_trigger_num = trigger_idn_num = trigger_class_num = 0
     gold_ent_num = pred_ent_num = ent_match_num = ent_overlap_match_num = 0
@@ -137,6 +138,8 @@ def score_graphs(gold_graphs, pred_graphs,
     relation_r = relation_p = 0
 
     gold_evi = pred_evi = match_evi = 0
+
+    rel_class_stats = defaultdict(lambda : defaultdict(lambda : 0))
 
     for gold_graph, pred_graph in zip(gold_graphs, pred_graphs):
         # Entity
@@ -216,13 +219,21 @@ def score_graphs(gold_graphs, pred_graphs,
             gold_rel_num += len(gold_relations)
             pred_rel_num += len(pred_relations)
         else:
-            gold_rel_num += sum([len(i.type) for i in gold_relations])
-            pred_rel_num += sum([len(i.type) for i in pred_relations])
+            gold_rel_num += sum([len(i[2]) for i in gold_relations])
+            pred_rel_num += sum([len(i[2]) for i in pred_relations])
 
         # cur_matched = 0
 
         for g in gold_evidence:
             gold_evi += len(g)
+
+        if multitype:
+            for _, _, rel_types in gold_relations:
+                for type in rel_types:
+                    rel_class_stats[type]['g'] += 1
+            for _, _, rel_types in pred_relations:
+                for type in rel_types:
+                    rel_class_stats[type]['p'] += 1
 
         for p_id, (arg1, arg2, rel_type) in enumerate(pred_relations):
             pred_evi += len(pred_evidence[p_id])
@@ -233,6 +244,9 @@ def score_graphs(gold_graphs, pred_graphs,
             if arg1 == -1 or arg2 == -1:
                 continue
             for g_id, (arg1_gold, arg2_gold, rel_type_gold) in enumerate(gold_relations):
+
+
+
                 # arg1_start_gold, arg1_end_gold, _ = gold_entities[arg1_gold]
                 # arg2_start_gold, arg2_end_gold, _ = gold_entities[arg2_gold]
                 if (arg1 == arg1_gold and arg2 == arg2_gold
@@ -249,6 +263,10 @@ def score_graphs(gold_graphs, pred_graphs,
                     elif multitype:
                         r_g, r_p, r_m = score_lists(rel_type_gold, rel_type)
                         rel_match_num += r_m
+
+                        for type in rel_type_gold:
+                            if type in rel_type:
+                                rel_class_stats[type]['m'] += 1
 
                     break
 
@@ -351,6 +369,12 @@ def score_graphs(gold_graphs, pred_graphs,
                 if gold_class:
                     arg_class_num += 1
 
+    if multitype:
+        for type in rel_class_stats.keys():
+            rel_class_stats[type]['prec'], rel_class_stats[type]['rec'], rel_class_stats[type]['f'] = compute_f1(
+                rel_class_stats[type]['p'], rel_class_stats[type]['g'], rel_class_stats[type]['m']
+            )
+
     entity_prec, entity_rec, entity_f = compute_f1(
         pred_ent_num, gold_ent_num, ent_match_num)
     entity_overlap_prec, entity_overlap_rec, entity_overlap_f = compute_f1(
@@ -445,6 +469,8 @@ def score_graphs(gold_graphs, pred_graphs,
         'trigger_clusters': {'prec': t_cluster_prec, 'rec': t_cluster_rec, 'f': t_cluster_f},
         'trigger_cluster_matched': {'prec': t_matched_p, 'rec': t_matched_r, 'f': t_matched_f}
     }
+    if return_class_scores:
+        return scores, rel_class_stats
     return scores
 
 

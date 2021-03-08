@@ -413,13 +413,15 @@ def build_information_graph(batch,
                             evidence_true_for_cand,
                             vocabs,
                             gold_inputs=False,
-                            symmetric_rel=True,
                             config=None,
-                            extra=0):
+                            extra=0,
+                            rel_type_thr=None):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
     relation_itos = {i: s for s, i in vocabs['relation'].items()}
     role_itos = {i: s for s, i in vocabs['role'].items()}
+
+    symmetric_rel = config.get("symmetric_relations")
 
     graphs = []
     for graph_idx in range(batch.batch_size):
@@ -527,6 +529,12 @@ def build_information_graph(batch,
         evid_scores = []
 
         if relation_pred is not None:
+
+            if rel_type_thr is None:
+                rel_type_thr = torch.ones(len(vocabs['relation'])).cuda() * 0.5
+            else:
+                rel_type_thr = torch.Tensor(rel_type_thr).cuda()
+
             cluster_num = cur_clusters.max() + 1
 
             rel_cand = relation_cand[graph_idx].view(cluster_num, cluster_num)
@@ -568,7 +576,7 @@ def build_information_graph(batch,
                         else:
 
                             rel_pred_scores = relation_pred[graph_idx, cur_idx]
-                            rel_pred_types = (rel_pred_scores > extra[2]).float().nonzero().view(-1).tolist()
+                            rel_pred_types = (rel_pred_scores > rel_type_thr).float().nonzero().view(-1).tolist()
                             if len(rel_pred_types) > 0:
                                 predicted_not_zero = True
                             rel_pred = [relation_itos[i] for i in rel_pred_types]
@@ -1388,3 +1396,29 @@ def get_rev_dict(rel_info_path):
         rev_dict[v] = k
 
     return rev_dict
+
+
+def adjust_thresholds(thr, stats, vocabs):
+
+    new_thr = [i for i in thr]
+
+    for type, metrics in stats.items():
+        idx = vocabs[type]
+        prec, rec = metrics["prec"], metrics["rec"]
+
+        diff = abs(prec - rec)
+        if diff < 0.03:
+            thr_delta = 0
+        elif diff < 0.1:
+            thr_delta = 0.05
+        else:
+            thr_delta = 0.1
+        if prec > rec:
+            thr_delta *= -1
+
+        new_thr[idx] += thr_delta
+
+        new_thr[idx] = max(new_thr[idx], 0)
+        new_thr[idx] = min(new_thr[idx], 0.95)
+
+    return new_thr
