@@ -10,7 +10,7 @@ def safe_div(num, denom):
     if denom > 0:
         return num / denom
     else:
-        return 1
+        return 1.
 
 
 def compute_f1(predicted, gold, matched):

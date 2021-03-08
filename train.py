@@ -299,7 +299,7 @@ state = dict(model=model.state_dict(),
 #model, vocabs, optimizer = load_model("model.pt", model)
 
 losses = []
-best_dev_score = best_test_score = 0.1
+best_dev_score = best_test_score = 0.3
 
 global_step = 0
 
@@ -308,6 +308,17 @@ writer = SummaryWriter()
 do_test = config.get("do_test", True)
 
 cur_dev_score = 0
+
+# additional values to be passed into build_information_graph
+
+# evidence threshold
+extra_values_0 = [0.2, 0.4, 0.6]
+# non-zero relation cand threshold
+extra_values_1 = [0.1, 0.2, 0.3]
+# relation type prediction threshold
+# extra_values_2 = [0.2, 0.3, 0.4]
+
+rel_type_thr = [0.3 for i in range(len(vocabs['relation']))]
 
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
@@ -329,7 +340,7 @@ for epoch in range(epoch_num):
                                 collate_fn=train_set.collate_fn)
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
-            if args.debug and batch_idx == 500:
+            if args.debug and batch_idx == 200:
                 break
 
             loss, train_loss_names = model(batch, epoch=epoch)
@@ -392,16 +403,6 @@ for epoch in range(epoch_num):
     pred_dev_graphs, pred_dev_gold_input_graphs = [], []
     dev_sent_ids, dev_tokens = [], []
 
-    #additional values to be passed into build_information_graph
-
-    rel_type_thr = [0.1 for i in range(len(vocabs['relation']))]
-
-    #evidence threshold
-    extra_values_0 = [0.2, 0.4, 0.6]
-    #non-zero relation cand threshold
-    extra_values_1 = [0.1, 0.2, 0.3]
-    #relation type prediction threshold
-    #extra_values_2 = [0.2, 0.3, 0.4]
 
 
     extra_values = []
@@ -420,7 +421,7 @@ for epoch in range(epoch_num):
     judge_value = "evidence"
 
 
-    if epoch % 5 == 0:
+    if epoch % 1 == 0:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
 
@@ -503,17 +504,17 @@ for epoch in range(epoch_num):
         for k, v in best_dev_g_i_scores.items():
             writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
-
+        print(rel_type_thr)
 
         print("Relation Class Metrics:")
         for (rel_type, metrics) in rel_class_stats.items():
-            print(rel_type, "~ thr:", rel_type_thr[vocabs["relation"][rel_type]],
+            print(rel_type, "~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
                   "~ prec:", round(metrics['prec'], 2),
                   "rec:", round(metrics['rec'], 2),
                   "f:", round(metrics['f'], 2))
 
 
-        rel_type_thr = adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"])
+        adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"])
 
         print(rel_type_thr)
 

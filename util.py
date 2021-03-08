@@ -1400,7 +1400,7 @@ def get_rev_dict(rel_info_path):
 
 def adjust_thresholds(thr, stats, vocabs):
 
-    new_thr = [i for i in thr]
+    #new_thr = [i for i in thr]
 
     for type, metrics in stats.items():
         idx = vocabs[type]
@@ -1416,9 +1416,7 @@ def adjust_thresholds(thr, stats, vocabs):
         if prec > rec:
             thr_delta *= -1
 
-        new_thr[idx] += thr_delta
+        thr[idx] += thr_delta
 
-        new_thr[idx] = max(new_thr[idx], 0)
-        new_thr[idx] = min(new_thr[idx], 0.95)
-
-    return new_thr
+        thr[idx] = max(thr[idx], 0.05)
+        thr[idx] = min(thr[idx], 0.95)
