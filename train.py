@@ -521,10 +521,17 @@ for epoch in range(epoch_num):
         else:
             cur_dev_score = best_dev_scores[judge_value]
 
+        thr_delta = 0.05
+
+        if epoch > 60:
+            thr_delta *= 0.1
+
         if cur_dev_score['prec'] > cur_dev_score['rec'] + 0.03:
-            extra_values[0][0] -= 0.05
+            extra_values[0][0] -= thr_delta
         elif cur_dev_score['prec'] < cur_dev_score['rec'] - 0.03:
-            extra_values[0][0] += 0.05
+            extra_values[0][0] += thr_delta
+
+
 
         cur_dev_score = cur_dev_score['f']
 
