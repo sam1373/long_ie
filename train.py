@@ -506,14 +506,16 @@ for epoch in range(epoch_num):
 
 
         print("Relation Class Metrics:")
-        for (type, metrics) in rel_class_stats.items():
-            print(type, "~ thr:", rel_type_thr[vocabs["relation"][type]],
+        for (rel_type, metrics) in rel_class_stats.items():
+            print(rel_type, "~ thr:", rel_type_thr[vocabs["relation"][rel_type]],
                   "~ prec:", round(metrics['prec'], 2),
                   "rec:", round(metrics['rec'], 2),
                   "f:", round(metrics['f'], 2))
 
 
         rel_type_thr = adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"])
+
+        print(rel_type_thr)
 
         if config.get("only_test_g_i"):
             cur_dev_score = best_dev_g_i_scores[judge_value]['f']
