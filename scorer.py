@@ -242,7 +242,7 @@ def score_graphs(gold_graphs, pred_graphs,
 
         for p_id, (arg1, arg2, rel_type) in enumerate(pred_relations):
             for type in rel_type:
-                pred_evi += len(pred_evidence[p_id][type])
+                pred_evi += len(pred_evidence_class[p_id][type])
             # arg1_start, arg1_end, _ = pred_entities[arg1]
             # arg2_start, arg2_end, _ = pred_entities[arg2]
             arg1 = pred_clusters_aligned[arg1]
@@ -275,7 +275,7 @@ def score_graphs(gold_graphs, pred_graphs,
                             if type in rel_type:
                                 rel_class_stats[type]['m'] += 1
 
-                                _, _, m = score_lists(pred_evidence[p_id][type], gold_evidence[p_id][type])
+                                _, _, m = score_lists(pred_evidence_class[p_id][type], gold_evidence_class[p_id][type])
 
 
                     break
