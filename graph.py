@@ -1,5 +1,5 @@
 class Graph(object):
-    def __init__(self, entities, triggers, relations, roles, evidence=None,
+    def __init__(self, entities, triggers, relations, roles, evidence=None, evidence_class=None,
                  coref_matrix=None, cluster_labels=None, cluster_labels_ev=None,
                  mentions=None):
         """
@@ -26,6 +26,7 @@ class Graph(object):
         self.cluster_labels_ev = cluster_labels_ev
         self.mentions = [] if mentions is None else mentions
         self.evidence = evidence
+        self.evidence_class = evidence_class
 
         self.entity_num = len(entities)
         self.trigger_num = len(triggers)

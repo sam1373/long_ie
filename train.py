@@ -21,7 +21,7 @@ from data2 import IEDataset
 from scorer import score_graphs
 from util import generate_vocabs, load_valid_patterns, save_result, best_score_by_task, \
     build_information_graph, label2onehot, load_model, \
-    summary_graph, load_word_embed, get_facts, get_rev_dict, adjust_thresholds
+    summary_graph, load_word_embed, get_facts, get_rev_dict, adjust_thresholds, get_adjustment
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -439,7 +439,7 @@ for epoch in range(epoch_num):
 
                 if len(batch.tokens[0]) < 400 and batch_idx < 20:
                     summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                          writer, global_step, "dev_", vocabs, None, id=batch_idx)
+                          writer, global_step + batch_idx, "dev_", vocabs, None, id=batch_idx)
 
             result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
@@ -452,7 +452,7 @@ for epoch in range(epoch_num):
 
             if len(batch.tokens[0]) < 400 and batch_idx < 20:
                 summary_graph(pred_gold_input_graphs[0], batch.graphs[0], batch,
-                          writer, global_step, "dev_gi_", vocabs, None, id=batch_idx)
+                          writer, global_step + batch_idx, "dev_gi_", vocabs, None, id=batch_idx)
 
 
             gold_dev_graphs.extend(batch.graphs)
@@ -521,17 +521,9 @@ for epoch in range(epoch_num):
         else:
             cur_dev_score = best_dev_scores[judge_value]
 
-        thr_delta = 0.05
+        thr_delta = get_adjustment(cur_dev_score['prec'], cur_dev_score['rec'])
 
-        if epoch > 60:
-            thr_delta *= 0.1
-
-        if cur_dev_score['prec'] > cur_dev_score['rec'] + 0.03:
-            extra_values[0][0] -= thr_delta
-        elif cur_dev_score['prec'] < cur_dev_score['rec'] - 0.03:
-            extra_values[0][0] += thr_delta
-
-
+        extra_values[0][0] += thr_delta
 
         cur_dev_score = cur_dev_score['f']
 
@@ -663,7 +655,7 @@ for epoch in range(epoch_num):
 
             if batch_idx % 500 == 0:
                 summary_graph(pred_graphs[0], batch.graphs[0], batch,
-                          writer, global_step, "sent_", vocabs, None)
+                          writer, global_step + batch_idx, "sent_", vocabs, None)
 
             result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 

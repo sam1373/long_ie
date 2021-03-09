@@ -526,6 +526,7 @@ def build_information_graph(batch,
 
         relations = []
         evidence = []
+        evidence_class = []
         evid_scores = []
 
         if relation_pred is not None:
@@ -587,10 +588,17 @@ def build_information_graph(batch,
                             nonzero_final_probs.append(relation_pred[graph_idx, cur_idx])
 
                             cur_evid = []
+                            cur_evid_class = dict()
                             for k in range(len(attn_cur)):
-                                if attn_cur[k] > extra[0]:
-                                    cur_evid.append(k)
+                                for l in range(len(attn_cur[k])):
+                                    if attn_cur[k][l] > extra[0]:
+                                        cur_evid.append(l)
+                                        if relation_itos[k] not in cur_evid_class:
+                                            cur_evid_class[k] = [l]
+                                        else:
+                                            cur_evid_class[k].append(l)
                             evidence.append(cur_evid)
+                            evidence_class.append(cur_evid_class)
                             evid_scores.append(attn_cur)
 
                     if rel_cand[i, j]:
@@ -598,7 +606,7 @@ def build_information_graph(batch,
 
                     # if rel_cand[i, j]:
 
-        cur_graph = Graph(entities, triggers, relations, [], evidence,
+        cur_graph = Graph(entities, triggers, relations, [], evidence, evidence_class,
                           coref_matrix, cur_clusters, cur_cluster_labels_ev)
 
         if relation_pred is not None:
@@ -719,7 +727,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     writer.add_text(prefix + "predicted_entities", " ".join(str(predicted_entities)), global_step)
     writer.add_text(prefix + "true_entities", " ".join(str(true_entities)), global_step)
-    writer.add_text(prefix + "full_text", "|".join(tokens), global_step)
+    writer.add_text(prefix + "full_text", " ".join(tokens).replace("</s>", "\n"), global_step)
 
     predicted_entities_set = set(predicted_entities)
 
@@ -1101,7 +1109,14 @@ def summary_graph(pred_graph, true_graph, batch,
 
     ##############################
 
+    rel_pair_dict = defaultdict(lambda : defaultdict(lambda : set()))
+
     predicted_relations = []
+
+    ###want:
+    #correctly predicted with comparison of evidence
+    #not predicted
+    #predicted false
 
     for i, (a, b, t) in enumerate(pred_graph.relations[:50]):
         if len(pred_clusters[a]) == 0:
@@ -1125,6 +1140,11 @@ def summary_graph(pred_graph, true_graph, batch,
                 evid_scores[j] = round(evid_scores[j], 2)
         predicted_relations.append((arg1, arg2, t, prob_pred, evid, evid_scores))
 
+        rel_pair_dict[(arg1, arg2)]['pred_types'] = set(t)
+        rel_pair_dict[(arg1, arg2)]['pred_evid']  = dict()
+        for type in t:
+            rel_pair_dict[(arg1, arg2)]['pred_evid'][type] = pred_graph.evidence_class[i][type]
+
     true_relations = []
 
     for i, (a, b, t) in enumerate(true_graph.relations):
@@ -1137,8 +1157,35 @@ def summary_graph(pred_graph, true_graph, batch,
             evid = true_graph.evidence[i]
         true_relations.append((arg1, arg2, t, evid))
 
+
+        rel_pair_dict[(arg1, arg2)]['true_types'] = set(t)
+        rel_pair_dict[(arg1, arg2)]['true_evid']  = dict()
+        for type in t:
+            rel_pair_dict[(arg1, arg2)]['true_evid'][type] = true_graph.evidence_class[i][type]
+
     writer.add_text(prefix + "predicted_relations", " ".join(str(predicted_relations)), global_step)
     writer.add_text(prefix + "true_relations", " ".join(str(true_relations)), global_step)
+
+    rel_analysis_text = ""
+    for (a, b), d in rel_pair_dict.items():
+        rel_analysis_text += a + " - " + b + "\n"
+        rel_analysis_text += "Correctly predicted types:\n"
+        for type in d['pred_types'].intersection(d['true_types']):
+            rel_analysis_text += type + "\n"
+            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n"
+            rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n"
+        rel_analysis_text += "Incorrect types:\n"
+        for type in d['pred_types'] - d['true_types']:
+            rel_analysis_text += type + "\n"
+            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n"
+        rel_analysis_text += "Not predicted types:\n"
+        for type in d['true_types'] - d['pred_types']:
+            rel_analysis_text += type + "\n"
+            rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n"
+        rel_analysis_text += "\n"
+
+    writer.add_text(prefix + "rel_analysis", rel_analysis_text, global_step)
+
 
     """predicted_relations = set(predicted_relations)
 
@@ -1395,6 +1442,28 @@ def get_rev_dict(rel_info_path):
 
     return rev_dict
 
+def get_adjustment(prec, rec):
+
+    diff = abs(prec - rec)
+
+    if diff < 0.03:
+        thr_delta = 0
+    elif diff < 0.06:
+        thr_delta = 0.01
+    elif diff < 0.1:
+        thr_delta = 0.05
+    elif diff < 0.2:
+        thr_delta = 0.1
+    else:
+        thr_delta = 0.2
+
+    if prec > rec:
+        thr_delta *= -1
+
+    if prec < 0.01:
+        thr_delta = 0.05
+
+    return thr_delta
 
 def adjust_thresholds(thr, stats, vocabs, ep=0):
     # new_thr = [i for i in thr]
@@ -1403,21 +1472,7 @@ def adjust_thresholds(thr, stats, vocabs, ep=0):
         idx = vocabs[type]
         prec, rec = metrics["prec"], metrics["rec"]
 
-        diff = abs(prec - rec)
-        if diff < 0.03:
-            thr_delta = 0
-        elif diff < 0.1:
-            thr_delta = 0.05
-        else:
-            thr_delta = 0.1
-        if prec > rec:
-            thr_delta *= -1
-
-        if prec < 0.01:
-            thr_delta = 0.05
-
-        if ep > 60 or abs(thr[idx]) < 0.1 or abs(thr[idx] - 1) < 0.1:
-            thr_delta *= 0.01
+        thr_delta = get_adjustment(prec, rec)
 
         thr[idx] += thr_delta
 

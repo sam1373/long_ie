@@ -1,11 +1,10 @@
-#from __future__ import annotations
+# from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Any, Union, Set
 from random import choice, randrange, random
-
 
 import torch
 from transformers import (PreTrainedTokenizer,
@@ -228,7 +227,7 @@ class Event:
     def get_type(self, level: str = 'type'):
         if level == 'type':
             return self.event_type
-        elif level =='subtype':
+        elif level == 'subtype':
             return '{}.{}'.format(self.event_type, self.event_subtype)
         elif level == 'subsubtype':
             return '{}.{}.{}'.format(self.event_type,
@@ -274,6 +273,7 @@ class Relation:
     data: Dict[str, Any] = None
     is_symmetric: bool = False
     evidence: List[int] = None
+    evidence_class: Dict[str, Any] = None
 
     def __post_init__(self):
         self.data = {}
@@ -287,7 +287,8 @@ class Relation:
                         relation_subtype=dict_obj['relation_subtype'],
                         arg1=RelationArgument.from_dict(dict_obj['arguments'][0], **kwargs),
                         arg2=RelationArgument.from_dict(dict_obj['arguments'][1], **kwargs),
-                        evidence=dict_obj.get("evidence", [])
+                        evidence=dict_obj.get("evidence", []),
+                        evidence_class=dict_obj.get("evidence_class", dict())
                         # is_symmetric=dict_obj['relation_type'] in symmetric_relations
                         )
 
@@ -435,14 +436,14 @@ class IEDataset(Dataset):
         self.data = []
         self.tensors = []
 
-        #self.word_embed = word_embed
+        # self.word_embed = word_embed
         self.word_vocab = word_vocab
 
         self.ws_tokenizer = ws_tokenizer
         self.ws_model = ws_model
 
         self.min_sent_len = min_sent_len
-        #default to config
+        # default to config
         if max_sent_len is None:
             self.max_sent_len = self.config.get("max_sent_len")
         else:
@@ -489,9 +490,9 @@ class IEDataset(Dataset):
         with open(path) as r:
             for line in r:
                 doc = Document.from_dict(json.loads(line),
-                                        #  symmetric_relations={
-                                            #  'Personal-Social',
-                                        #  }
+                                         #  symmetric_relations={
+                                         #  'Personal-Social',
+                                         #  }
                                          )
                 self.data.append(doc)
                 doc2 = Document.from_dict(json.loads(line))
@@ -609,9 +610,9 @@ class IEDataset(Dataset):
                 continue
             processed_entities.append(entity)
 
-        #fix ordering?
-        #could mess something up?
-        #processed_entities = sorted(processed_entities, key = lambda x : (entity.start, entity.end))
+        # fix ordering?
+        # could mess something up?
+        # processed_entities = sorted(processed_entities, key = lambda x : (entity.start, entity.end))
 
         sentence.update_entities(processed_entities)
 
@@ -654,22 +655,22 @@ class IEDataset(Dataset):
         tokens = sentence.tokens
         if self.ws_model is not None and swap_prob > 0:
             if len(tokens) > 50 or random() < 0.2:
-                #st = randrange(0, max(1, len(tokens) - 500))
-                #run on each 500-token segment
+                # st = randrange(0, max(1, len(tokens) - 500))
+                # run on each 500-token segment
                 for st in range(0, len(tokens), 500):
                     end = st + 500
                     end = min(len(tokens), end)
 
                     tokens_orig = tokens[st:end]
 
-                    #print(tokens_orig)
+                    # print(tokens_orig)
 
                     tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
 
-                    #print(tokens_aug)
+                    # print(tokens_aug)
 
                     tokens[st:end] = tokens_aug
-        #print(tokens)
+        # print(tokens)
         pieces = []
         for i, word in enumerate(tokens):
             if word == '\n':
@@ -679,10 +680,9 @@ class IEDataset(Dataset):
                 word = " " + word
             wp = tokenizer.tokenize(word)
             pieces.append(wp)
-        #pieces = [tokenizer.tokenize(" " * (i > 0 and not (token in [".", ","])) + token) for i, token in enumerate(tokens)]
+        # pieces = [tokenizer.tokenize(" " * (i > 0 and not (token in [".", ","])) + token) for i, token in enumerate(tokens)]
         token_lens = [len(p) for p in pieces]
         # Remove overlength sentences
-
 
         # Todo: automatically remove 0-len tokens
         assert all(l > 0 for l in token_lens)
@@ -713,9 +713,9 @@ class IEDataset(Dataset):
                                                max_length=max_sent_len,
                                                truncation=True)
         sentence.attention_mask = [1.0] * len(sentence.piece_idxs)
-        #token_lens[0] += 1  # for <s>
-        #token_lens[-1] += 1  # for </s>
-        #accounted for later
+        # token_lens[0] += 1  # for <s>
+        # token_lens[-1] += 1  # for </s>
+        # accounted for later
         if self.word_vocab:
             sentence.token_embed_ids = [self.word_vocab.get(tok.lower(), 0) for tok in tokens]
         return True
@@ -725,11 +725,12 @@ class IEDataset(Dataset):
                     tokenizer: PreTrainedTokenizer,
                     max_sent_len: int = 128,
                     min_sent_len: int = 0,
-                    swap_prob = 0.05):
+                    swap_prob=0.05):
         # Convert tokens to wordpieces
         sentences = []
         for sentence in doc.sentences:
-            keep_sent = self.process_tokens(sentence, tokenizer, max_sent_len=max_sent_len, min_sent_len=min_sent_len, swap_prob=swap_prob)
+            keep_sent = self.process_tokens(sentence, tokenizer, max_sent_len=max_sent_len, min_sent_len=min_sent_len,
+                                            swap_prob=swap_prob)
             if not keep_sent:
                 continue
             # print('Before', len(sentence.entities), len(sentence.relations), len(sentence.events))
@@ -747,15 +748,15 @@ class IEDataset(Dataset):
 
     def process(self,
                 tokenizer: PreTrainedTokenizer,
-                swap_prob = 0):
-
+                swap_prob=0):
 
         print("number of samples in dataset:", len(self.data))
 
         for doc_id, _ in enumerate(tqdm(self.data)):
-            #print("processing doc", doc_id + 1, "out of", len(self.data))
+            # print("processing doc", doc_id + 1, "out of", len(self.data))
             self.data[doc_id] = copy.deepcopy(self.orig_data[doc_id])
-            self.process_doc(self.data[doc_id], tokenizer, max_sent_len=self.max_sent_len, min_sent_len=self.min_sent_len, swap_prob=swap_prob)
+            self.process_doc(self.data[doc_id], tokenizer, max_sent_len=self.max_sent_len,
+                             min_sent_len=self.min_sent_len, swap_prob=swap_prob)
 
     def tensorize_pieces(self, doc: Document, gpu: bool = True):
         all_pieces = [sent.piece_idxs for sent in doc.sentences]
@@ -811,8 +812,8 @@ class IEDataset(Dataset):
         for relation in sentence.relations:
             if (sentence.has_entity(relation.arg1.entity_id,
                                     relation.arg1.mention_id) and
-                sentence.has_entity(relation.arg2.entity_id,
-                                    relation.arg2.mention_id)):
+                    sentence.has_entity(relation.arg2.entity_id,
+                                        relation.arg2.mention_id)):
                 relations.append(relation)
         sentence.update_relations(relations)
         # Filter events
@@ -853,10 +854,10 @@ class IEDataset(Dataset):
                 relation.relation_type_idx = [relation_type_stoi[i] for i in relation_type]
             else:
                 relation.relation_type_idx = relation_type_stoi[relation_type]
-            #relation.is_symmetric = ontology.is_symmetric(relation_type)
+            # relation.is_symmetric = ontology.is_symmetric(relation_type)
 
-            #relation_type_rev = '{}_rev'.format(relation_type)
-            #if relation_type_rev in relation_type_stoi:
+            # relation_type_rev = '{}_rev'.format(relation_type)
+            # if relation_type_rev in relation_type_stoi:
             #    relation.relation_type_idx_rev = relation_type_stoi[relation_type_rev]
         for event in sentence.events:
             for arg in event.arguments:
@@ -890,17 +891,19 @@ class IEDataset(Dataset):
         if relation_type_level != "multitype":
             labels = [[0 for j in range(cluster_num)] for i in range(cluster_num)]
         else:
-            labels = [[[0 for k in range(len(self.vocabs["relation"]))] for j in range(cluster_num)] for i in range(cluster_num)]
+            labels = [[[0 for k in range(len(self.vocabs["relation"]))] for j in range(cluster_num)] for i in
+                      range(cluster_num)]
 
-        evidence = [[[0 for k in range(total_sents)] for j in range(cluster_num)] for i in range(cluster_num)]
+        evidence = [[[[0 for l in range(total_sents)] for k in range(len(self.vocabs["relation"]))]
+                     for j in range(cluster_num)] for i in range(cluster_num)]
 
         rel_added = set()
         relations_cl = []
 
         for rel_id, relation in enumerate(relations):
             relation_type = relation.relation_type_idx
-            #arg1 = relation.arg1.uid
-            #arg2 = relation.arg2.uid
+            # arg1 = relation.arg1.uid
+            # arg2 = relation.arg2.uid
             arg1 = mention_id_dict[relation.arg1.mention_id]
             arg2 = mention_id_dict[relation.arg2.mention_id]
             if arg1 == arg2:
@@ -908,9 +911,15 @@ class IEDataset(Dataset):
             c_i = mention_to_ent[arg1]
             c_j = mention_to_ent[arg2]
 
-            for sent in relation.evidence:
-                if sent < total_sents:
-                    evidence[c_i][c_j][sent] = 1
+            for type in relation.evidence_class.keys():
+                type_idx = self.vocabs['relation'][type]
+                for sent in relation.evidence_class[type]:
+                    if sent < total_sents:
+                        evidence[c_i][c_j][type_idx][sent] = 1
+
+            # for sent in relation.evidence:
+            #    if sent < total_sents:
+            #        evidence[c_i][c_j][sent] = 1
 
             if relation_type_level == "multitype":
                 relation_type = [int(k in relation_type) for k in range(len(self.vocabs["relation"]))]
@@ -918,26 +927,23 @@ class IEDataset(Dataset):
             if self.config.get("symmetric_relations"):
                 labels[c_i][c_j] = labels[c_j][c_i] = relation_type
                 labels_nonzero[c_i][c_j] = labels_nonzero[c_j][c_i] = True
-                for sent in relation.evidence:
-                    evidence[c_j][c_i][sent] = 1
+                evidence[c_j][c_i] = evidence[c_i][c_j]
             else:
                 labels[c_i][c_j] = relation_type
                 labels_nonzero[c_i][c_j] = True
 
-
             if self.config.get("symmetric_relations") and c_i > c_j:
                 c_i, c_j = c_j, c_i
 
-            #relations_cl_set.add((c_i, c_j, relation.get_type(relation_type_level)))
+            # relations_cl_set.add((c_i, c_j, relation.get_type(relation_type_level)))
             if not (c_i, c_j) in rel_added:
                 relations_cl.append((c_i, c_j, relation.get_type(relation_type_level)))
             rel_added.add((c_i, c_j))
 
-
         return labels, labels_nonzero, relations_cl, evidence
 
     def get_relation_labels(self, relations, entities, graph, entity_uids):
-        #also adds missing relations to rels list
+        # also adds missing relations to rels list
         entity_num = len(entities)
         labels = [[0] * entity_num for i in range(entity_num)]
         rel_set = set([(i[0], i[1]) for i in graph.relations])
@@ -1001,7 +1007,7 @@ class IEDataset(Dataset):
         relation_type_level = config.get('relation_type_level', 'subtype')
 
         entities_ = [(entity.start, entity.end, entity.get_type(entity_type_level))
-                    for entity in entities]
+                     for entity in entities]
         triggers = [(event.trigger.start, event.trigger.end,
                      event.get_type(event_type_level))
                     for event in events]
@@ -1014,6 +1020,7 @@ class IEDataset(Dataset):
 
         relations_ = []
         evidence_ = []
+        evidence_class_ = []
         for relation in relations:
             arg1 = relation.arg1.uid
             arg2 = relation.arg2.uid
@@ -1021,6 +1028,7 @@ class IEDataset(Dataset):
                                entity_uids[arg2],
                                relation.get_type(relation_type_level)))
             evidence_.append(relation.evidence)
+            evidence_class_.append(relation.evidence_class)
 
         roles = []
         for event in events:
@@ -1028,10 +1036,10 @@ class IEDataset(Dataset):
             for argument in event.arguments:
                 entity = entity_uids[argument.uid]
                 roles.append((trigger, entity, argument.role))
-        return Graph(entities_, triggers, relations_, roles, evidence = evidence_)
+        return Graph(entities_, triggers, relations_, roles, evidence=evidence_, evidence_class=evidence_class_)
 
     def collate_fn(self,
-                   batch: List[Dict[str, Any]],) -> Batch:
+                   batch: List[Dict[str, Any]], ) -> Batch:
         config = self.config
         max_entity_len = config.get('max_entity_len')
         max_trigger_len = config.get('max_trigger_len')
@@ -1155,14 +1163,14 @@ class IEDataset(Dataset):
                     entity_labels.append(
                         inst['entity_labels'].get((start, end), 0))
                     mention_labels.append(-100)
-                        #inst['mention_labels'].get((start, end), -100))
+                    # inst['mention_labels'].get((start, end), -100))
                     if (start, end) in inst['entity_labels']:
                         inst_pos_entity_idxs.append(offset_idx)
                         inst_pos_entity_offsets.append((start, end))
                         inst_pos_entity_uids.append(
                             inst['entity_uids'][(start, end)])
                         id_entity_labels.append(inst['entity_labels'][(start, end)])
-                        id_mention_labels.append(-100)#inst['mention_labels'][(start, end)])
+                        id_mention_labels.append(-100)  # inst['mention_labels'][(start, end)])
                         # Gold labels to GNN
                         inst_entity_labels_sep.append(inst['entity_labels'][(start, end)])
 
@@ -1230,7 +1238,6 @@ class IEDataset(Dataset):
 
                     inst_trigger_span_mask.append(1)
 
-
             inst_pos_trigger_idxs += [0] * (max_event_num - inst['event_num'])
             pos_trigger_idxs.append(inst_pos_trigger_idxs)
             pos_trigger_offsets.append(inst_pos_trigger_offsets)
@@ -1242,7 +1249,6 @@ class IEDataset(Dataset):
             type_from_here_ev.append(inst_type_from_here_ev)
 
             # Relation labels
-
 
             entity_num = len(inst['entities'])
 
@@ -1284,7 +1290,7 @@ class IEDataset(Dataset):
 
             for a in range(event_num):
                 cur_ev = inst['events'][a].event_id
-                #mention_id_dict[inst['entities'][a].mention_id] = a
+                # mention_id_dict[inst['entities'][a].mention_id] = a
                 if cur_ev not in inst_events_coref:
                     inst_events_coref[cur_ev] = len(inst_events_coref)
                 inst_mention_to_ev_coref.append(inst_events_coref[cur_ev])
@@ -1300,12 +1306,11 @@ class IEDataset(Dataset):
 
             inst_relation_labels_cl, inst_nonzero_relations, \
             relations_cl, inst_evidence = self.get_relation_labels_for_clusters(inst['relations'],
-                                                                          inst_mention_to_ent_coref,
-                                                                          mention_id_dict,
-                                                                          total_sents)
+                                                                                inst_mention_to_ent_coref,
+                                                                                mention_id_dict,
+                                                                                total_sents)
 
             inst['graph'].relations = relations_cl
-
 
             ###
 
@@ -1324,7 +1329,7 @@ class IEDataset(Dataset):
 
                 print(em_1, "-", em_2, ":", t)"""
 
-            #input()
+            # input()
 
             """inst_relation_labels = self.get_relation_labels(inst['relations'],
                                                                         inst['entities'],
@@ -1339,13 +1344,12 @@ class IEDataset(Dataset):
 
             evidence_labels.append(inst_evidence)
 
-
             # Role labels
             inst_role_labels = self.get_role_labels(inst['events'],
                                                     inst_pos_event_uids,
                                                     inst_pos_entity_uids)
-                                                    # max_event_num,
-                                                    # max_entity_num)
+            # max_event_num,
+            # max_entity_num)
             role_labels_sep.append(inst_role_labels)
             # for x in inst_role_labels:
             #     role_labels.extend(x)

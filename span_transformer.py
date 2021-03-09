@@ -168,6 +168,7 @@ class ContextTransformer(nn.Module):
         self.aggr_emb = nn.Parameter(torch.randn(hid_dim).cuda() * 0.1)
 
         self.attn, self.norm = [], []
+        self.lin = []
 
 
         for i in range(num_layers):
@@ -178,9 +179,13 @@ class ContextTransformer(nn.Module):
             self.norm.append(
                 nn.LayerNorm(hid_dim)
             )
+            self.lin.append(
+                nn.Linear(hid_dim, hid_dim)
+            )
 
         self.attn = nn.ModuleList(self.attn)
         self.norm = nn.ModuleList(self.norm)
+        self.lin = nn.ModuleList(self.lin)
 
         self.num_layers = num_layers
 
@@ -199,5 +204,7 @@ class ContextTransformer(nn.Module):
             x = x + x1
 
             x = self.norm[i](x)
+
+            x = x + self.lin[i](x)
 
         return x, attns

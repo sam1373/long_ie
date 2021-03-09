@@ -209,8 +209,12 @@ def score_graphs(gold_graphs, pred_graphs,
         # Relation
         gold_relations = gold_graph.relations
         pred_relations = pred_graph.relations
+
         gold_evidence = gold_graph.evidence
         pred_evidence = pred_graph.evidence
+
+        gold_evidence_class = gold_graph.evidence_class
+        pred_evidence_class = pred_graph.evidence_class
 
         gold_nonzero_rel_num += len(gold_relations)
         pred_nonzero_rel_num += len(pred_relations)
@@ -224,8 +228,9 @@ def score_graphs(gold_graphs, pred_graphs,
 
         # cur_matched = 0
 
-        for g in gold_evidence:
-            gold_evi += len(g)
+        for g in gold_evidence_class:
+            for v in g.values():
+                gold_evi += len(v)
 
         if multitype:
             for _, _, rel_types in gold_relations:
@@ -236,7 +241,8 @@ def score_graphs(gold_graphs, pred_graphs,
                     rel_class_stats[type]['p'] += 1
 
         for p_id, (arg1, arg2, rel_type) in enumerate(pred_relations):
-            pred_evi += len(pred_evidence[p_id])
+            for type in rel_type:
+                pred_evi += len(pred_evidence[p_id][type])
             # arg1_start, arg1_end, _ = pred_entities[arg1]
             # arg2_start, arg2_end, _ = pred_entities[arg2]
             arg1 = pred_clusters_aligned[arg1]
@@ -254,9 +260,10 @@ def score_graphs(gold_graphs, pred_graphs,
 
                     nonzero_rel_match_num += 1
 
-                    g, p, m = score_lists(pred_evidence[p_id], gold_evidence[g_id])
 
-                    match_evi += m
+                    #g, p, m = score_lists(pred_evidence[p_id], gold_evidence[g_id])
+
+                    #match_evi += m
 
                     if rel_type == rel_type_gold and not multitype:
                         rel_match_num += 1
@@ -267,6 +274,9 @@ def score_graphs(gold_graphs, pred_graphs,
                         for type in rel_type_gold:
                             if type in rel_type:
                                 rel_class_stats[type]['m'] += 1
+
+                                _, _, m = score_lists(pred_evidence[p_id][type], gold_evidence[p_id][type])
+
 
                     break
 

@@ -206,6 +206,9 @@ class LongIE(nn.Module):
         if self.config.get('use_sent_num_embed'):
             token_initial_dim += self.config.get('sent_num_embed_dim')
 
+        if self.config.get("use_extra_bert"):
+            token_initial_dim += self.encoder.config.hidden_size
+
         self.comp_dim = comp_dim
 
         #self.token_start_enc = Linears([token_initial_dim, 1024, 512])
@@ -237,7 +240,7 @@ class LongIE(nn.Module):
 
         self.relation_any_clf = Linears([comp_dim * 2, hidden_dim, 2])
 
-        self.relation_clf = Linears([comp_dim * 2, hidden_dim, len(vocabs['relation'])])
+        self.relation_clf = Linears([comp_dim * 2, hidden_dim, 1])
 
         if self.config.get("relation_type_level") == "multitype":
             self.relation_clf = nn.Sequential(self.relation_clf, nn.Sigmoid())
@@ -295,6 +298,8 @@ class LongIE(nn.Module):
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
         self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=6)
+
+        self.rel_type_embed = nn.Embedding(len(vocabs['relation']), comp_dim * 2)
 
         """nn.Transformer(num_encoder_layers = 0,
                       num_decoder_layers = 3,
@@ -890,7 +895,8 @@ class LongIE(nn.Module):
                     if not predict:
                         relation_true_for_cand = torch.zeros((batch_size, total_rel_cand) +
                                                              batch.relation_labels.shape[3:]).cuda().long()
-                        evidence_true_for_cand = torch.zeros(batch_size, total_rel_cand, sent_context.shape[-2]).cuda()
+                        evidence_true_for_cand = torch.zeros((batch_size, total_rel_cand) +
+                                                             batch.evidence_labels.shape[3:]).cuda()
                     cur_idx = 0
                     for b in range(batch_size):
                         for i in range(cluster_num):
@@ -903,6 +909,8 @@ class LongIE(nn.Module):
                                         relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
                                         evidence_true_for_cand[b, cur_idx] = batch.evidence_labels[b, i, j]
                                     cur_idx += 1
+
+                    evidence_true_for_cand = evidence_true_for_cand.transpose(-2, -1)
 
 
 
@@ -926,13 +934,33 @@ class LongIE(nn.Module):
                     #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
+
+                    num_rel_types = len(self.vocabs["relation"])
+
+                    all_type_idx = torch.arange(0, num_rel_types).cuda()
+                    all_type_embeds = self.rel_type_embed(all_type_idx)\
+
+                    all_type_embeds = all_type_embeds.unsqueeze(0).unsqueeze(0).\
+                        repeat(1, relation_cand_pairs.shape[1], 1, 1)
+
+                    relation_cand_pairs = relation_cand_pairs.unsqueeze(2).repeat(1, 1, num_rel_types, 1)
+
+                    #relation_cand_pairs_trans = torch.cat((relation_cand_pairs_trans, all_type_embeds), dim=-1)
+                    relation_cand_pairs = relation_cand_pairs + all_type_embeds
+
+                    hidden_size = relation_cand_pairs.shape[-1]
+
+
                     relation_cand_pairs_trans, attns = self.rel_transformer(sent_context_comp.transpose(0, 1),
-                                                               relation_cand_pairs.transpose(0, 1))
-                    relation_cand_pairs_trans = relation_cand_pairs_trans.transpose(0, 1)
+                                                               relation_cand_pairs.view(batch_size, -1, hidden_size).transpose(0, 1))
+
+
+                    relation_cand_pairs_trans = relation_cand_pairs_trans.transpose(0, 1).view(batch_size, -1, num_rel_types, hidden_size)
 
                     relation_cand_pairs = relation_cand_pairs + relation_cand_pairs_trans
 
-                    attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1]
+                    attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1].\
+                        reshape(batch_size, total_rel_cand, num_rel_types, -1).transpose(-2, -1)
 
                     #attn_sum[attn_sum < 1.] = 0.
 
@@ -946,6 +974,8 @@ class LongIE(nn.Module):
                         print(attn_highest, attn_mean)"""
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
+
+                    relation_pred = relation_pred.view(batch_size, -1, num_rel_types)
 
 
             entity_spans = entity_aggr_aligned
@@ -1088,17 +1118,20 @@ class LongIE(nn.Module):
             #evid_loss = -(evidence_true_for_cand * attn_sum).mean()
             evid_loss = -torch.clamp(attn_sum[evidence_true_for_cand == 1], max=1.2).mean()
 
-            #false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(-1) > 0)
+            if self.config.get("relation_type_level") == "multitype":
+                false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(2) > 0)
+            else:
+                false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(-1) > 0)
 
-            #evid_loss_neg = attn_sum[false_evid_true_rel].mean()
+            evid_loss_neg = attn_sum[false_evid_true_rel].mean()
 
             #print(-attn_sum.mean(), evid_loss)
 
             loss.append(evid_loss)
             loss_names.append("evidence")
 
-            #loss.append(evid_loss_neg)
-            #loss_names.append("evidence_neg")
+            loss.append(evid_loss_neg)
+            loss_names.append("evidence_neg")
 
 
         if self.config.get("do_coref") and not self.config.get("only_train_g_i"):
