@@ -1132,13 +1132,13 @@ def summary_graph(pred_graph, true_graph, batch,
         prob_pred = F.log_softmax(pred_graph.rel_probs[i], dim=-1).tolist()
         prob_pred = max(prob_pred)
         prob_pred = round(prob_pred, 2)
-        evid = []
+        """evid = []
         if len(pred_graph.evidence) > i:
             evid = pred_graph.evidence[i]
             evid_scores = pred_graph.evid_scores[i]
             for j in range(len(evid_scores)):
-                evid_scores[j] = round(evid_scores[j], 2)
-        predicted_relations.append((arg1, arg2, t, prob_pred, evid, evid_scores))
+                evid_scores[j] = round(evid_scores[j], 2)"""
+        predicted_relations.append((arg1, arg2, t, prob_pred))
 
         rel_pair_dict[(arg1, arg2)]['pred_types'] = set(t)
         rel_pair_dict[(arg1, arg2)]['pred_evid']  = dict()
