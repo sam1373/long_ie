@@ -727,7 +727,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     writer.add_text(prefix + "predicted_entities", " ".join(str(predicted_entities)), global_step)
     writer.add_text(prefix + "true_entities", " ".join(str(true_entities)), global_step)
-    writer.add_text(prefix + "full_text", " ".join(tokens).replace("</s>", "\n"), global_step)
+    writer.add_text(prefix + "full_text", " ".join(tokens).replace("</s>", "\n\n"), global_step)
 
     predicted_entities_set = set(predicted_entities)
 
@@ -762,7 +762,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     writer.add_text(prefix + "predicted_triggers", " ".join(str(predicted_triggers)), global_step)
     writer.add_text(prefix + "true_triggers", " ".join(str(true_triggers)), global_step)
-    writer.add_text(prefix + "full_text", "|".join(tokens), global_step)
+    #writer.add_text(prefix + "full_text", "|".join(tokens), global_step)
 
     predicted_trig_set = set(predicted_triggers)
 
@@ -1168,21 +1168,21 @@ def summary_graph(pred_graph, true_graph, batch,
 
     rel_analysis_text = ""
     for (a, b), d in rel_pair_dict.items():
-        rel_analysis_text += a + " - " + b + "\n"
-        rel_analysis_text += "Correctly predicted types:\n"
+        rel_analysis_text += a + " - " + b + "\n\n"
+        rel_analysis_text += "Correctly predicted types:\n\n"
         for type in d['pred_types'].intersection(d['true_types']):
-            rel_analysis_text += type + "\n"
-            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n"
-            rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n"
-        rel_analysis_text += "Incorrect types:\n"
+            rel_analysis_text += type + "\n\n"
+            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n\n"
+            rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n\n"
+        rel_analysis_text += "Incorrect types:\n\n"
         for type in d['pred_types'] - d['true_types']:
-            rel_analysis_text += type + "\n"
-            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n"
-        rel_analysis_text += "Not predicted types:\n"
+            rel_analysis_text += type + "\n\n"
+            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n\n"
+        rel_analysis_text += "Not predicted types:\n\n"
         for type in d['true_types'] - d['pred_types']:
-            rel_analysis_text += type + "\n"
-            rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n"
-        rel_analysis_text += "\n"
+            rel_analysis_text += type + "\n\n"
+            rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n\n"
+        rel_analysis_text += "\n\n"
 
     writer.add_text(prefix + "rel_analysis", rel_analysis_text, global_step)
 
