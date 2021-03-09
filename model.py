@@ -925,10 +925,10 @@ class LongIE(nn.Module):
 
                     encoder_comp = self.rel_context_project(encoder_outputs)
 
-                    sent_context_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
+                    #sent_context_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
 
                     #add additional thing to "offload" attention to
-                    sent_context_comp = torch.cat((sent_context_comp,
+                    encoder_comp = torch.cat((encoder_comp,
                                                    torch.zeros(batch_size, 1, self.comp_dim * 2).cuda()), dim=1)
 
                     #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
@@ -951,7 +951,7 @@ class LongIE(nn.Module):
                     hidden_size = relation_cand_pairs.shape[-1]
 
 
-                    relation_cand_pairs_trans, attns = self.rel_transformer(sent_context_comp.transpose(0, 1),
+                    relation_cand_pairs_trans, attns = self.rel_transformer(encoder_comp.transpose(0, 1),
                                                                relation_cand_pairs.view(batch_size, -1, hidden_size).transpose(0, 1))
 
 
@@ -961,6 +961,8 @@ class LongIE(nn.Module):
 
                     attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1].\
                         reshape(batch_size, total_rel_cand, num_rel_types, -1).transpose(-2, -1)
+
+                    attn_sum = torch_scatter.scatter_max(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)[0]
 
                     #attn_sum[attn_sum < 1.] = 0.
 
