@@ -590,13 +590,14 @@ def build_information_graph(batch,
                             cur_evid = []
                             cur_evid_class = dict()
                             for k in range(len(attn_cur)):
+                                if k not in rel_pred_types:
+                                    continue
+                                k_s = relation_itos[k]
+                                cur_evid_class[k_s] = []
                                 for l in range(len(attn_cur[k])):
                                     if attn_cur[k][l] > extra[0]:
                                         cur_evid.append(l)
-                                        if relation_itos[k] not in cur_evid_class:
-                                            cur_evid_class[k] = [l]
-                                        else:
-                                            cur_evid_class[k].append(l)
+                                        cur_evid_class[k_s].append(l)
                             evidence.append(cur_evid)
                             evidence_class.append(cur_evid_class)
                             evid_scores.append(attn_cur)
@@ -1062,7 +1063,7 @@ def summary_graph(pred_graph, true_graph, batch,
 
     ###
 
-    if pred_graph.coref_matrix is not None:
+    if pred_graph.coref_matrix is not None and create_images:
         true_ent_text = ""
 
         col_list = []
@@ -1141,7 +1142,7 @@ def summary_graph(pred_graph, true_graph, batch,
         predicted_relations.append((arg1, arg2, t, prob_pred))
 
         rel_pair_dict[(arg1, arg2)]['pred_types'] = set(t)
-        rel_pair_dict[(arg1, arg2)]['pred_evid']  = dict()
+        rel_pair_dict[(arg1, arg2)]['pred_evid'] = dict()
         for type in t:
             rel_pair_dict[(arg1, arg2)]['pred_evid'][type] = pred_graph.evidence_class[i][type]
 

@@ -327,7 +327,7 @@ for i in extra_values_0:
 
 extra_value_num = len(extra_values)
 
-rel_type_thr = [0.3 for i in range(len(vocabs['relation']))]
+rel_type_thr = [0.1 for i in range(len(vocabs['relation']))]
 
 for epoch in range(epoch_num):
     print('******* Epoch {} *******'.format(epoch))
