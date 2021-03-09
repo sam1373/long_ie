@@ -275,7 +275,7 @@ def score_graphs(gold_graphs, pred_graphs,
                             if type in rel_type:
                                 rel_class_stats[type]['m'] += 1
 
-                                _, _, m = score_lists(pred_evidence_class[p_id][type], gold_evidence_class[p_id][type])
+                                _, _, m = score_lists(pred_evidence_class[p_id][type], gold_evidence_class[g_id][type])
 
 
                     break

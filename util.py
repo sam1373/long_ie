@@ -589,13 +589,13 @@ def build_information_graph(batch,
 
                             cur_evid = []
                             cur_evid_class = dict()
-                            for k in range(len(attn_cur)):
+                            for k in range(len(attn_cur[0])):
                                 if k not in rel_pred_types:
                                     continue
                                 k_s = relation_itos[k]
                                 cur_evid_class[k_s] = []
-                                for l in range(len(attn_cur[k])):
-                                    if attn_cur[k][l] > extra[0]:
+                                for l in range(len(attn_cur)):
+                                    if attn_cur[l][k] > extra[0]:
                                         cur_evid.append(l)
                                         cur_evid_class[k_s].append(l)
                             evidence.append(cur_evid)
