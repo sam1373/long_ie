@@ -299,7 +299,7 @@ class LongIE(nn.Module):
         #both are comp_dim * 2
         self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=3, num_heads=8)
 
-        self.rel_type_embed = nn.Embedding(len(vocabs['relation']), comp_dim * 2)
+        self.rel_type_embed = nn.Embedding(len(vocabs['relation']) + 1, comp_dim * 2)
 
         """nn.Transformer(num_encoder_layers = 0,
                       num_decoder_layers = 3,
@@ -954,13 +954,13 @@ class LongIE(nn.Module):
 
                     num_rel_types = len(self.vocabs["relation"])
 
-                    all_type_idx = torch.arange(0, num_rel_types).cuda()
+                    all_type_idx = torch.arange(0, num_rel_types + 1).cuda()
                     all_type_embeds = self.rel_type_embed(all_type_idx)\
 
                     all_type_embeds = all_type_embeds.unsqueeze(0).unsqueeze(0).\
                         repeat(1, relation_cand_pairs.shape[1], 1, 1)
 
-                    relation_cand_pairs = relation_cand_pairs.unsqueeze(2).repeat(1, 1, num_rel_types, 1)
+                    relation_cand_pairs = relation_cand_pairs.unsqueeze(2).repeat(1, 1, num_rel_types + 1, 1)
 
                     #relation_cand_pairs_trans = torch.cat((relation_cand_pairs_trans, all_type_embeds), dim=-1)
                     relation_cand_pairs = relation_cand_pairs + all_type_embeds
@@ -972,12 +972,12 @@ class LongIE(nn.Module):
                                                                relation_cand_pairs.view(batch_size, -1, hidden_size).transpose(0, 1))
 
 
-                    relation_cand_pairs_trans = relation_cand_pairs_trans.transpose(0, 1).view(batch_size, -1, num_rel_types, hidden_size)
+                    relation_cand_pairs_trans = relation_cand_pairs_trans.transpose(0, 1).view(batch_size, -1, num_rel_types + 1, hidden_size)
 
                     relation_cand_pairs = relation_cand_pairs + relation_cand_pairs_trans
 
                     attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1].\
-                        reshape(batch_size, total_rel_cand, num_rel_types, -1).transpose(-2, -1)
+                        reshape(batch_size, total_rel_cand, num_rel_types + 1, -1).transpose(-2, -1)[:, :, :, :-1]
 
                     if not self.config.get("condense_sents"):
                         attn_sum = torch_scatter.scatter_mean(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)
@@ -995,7 +995,7 @@ class LongIE(nn.Module):
 
                     relation_pred = self.relation_clf(relation_cand_pairs)
 
-                    relation_pred = relation_pred.view(batch_size, -1, num_rel_types)
+                    relation_pred = relation_pred.view(batch_size, -1, num_rel_types + 1)
 
 
             entity_spans = entity_aggr_aligned
@@ -1309,8 +1309,15 @@ class LongIE(nn.Module):
             #print("predicted right non-zero:", rel_pred_correct_nonzero.sum())
 
             if self.config.get("relation_type_level") == "multitype":
-                relation_loss = self.relation_loss(relation_pred.view(-1),
-                                          relation_true_for_cand.view(-1).float())
+                #weird loss tbh
+
+                mean_pos_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 1).float(), dim=2)
+                mean_neg_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 0).float(), dim=2)
+                thrs = relation_pred[:, :, -1]
+
+                relation_loss = -(mean_pos_scores - thrs).mean() + -(thrs - mean_neg_scores).mean()
+                #relation_loss = self.relation_loss(relation_pred.view(-1),
+                #                          relation_true_for_cand.view(-1).float())
             else:
                 relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
                                           relation_true_for_cand.view(-1))

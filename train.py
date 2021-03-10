@@ -508,13 +508,13 @@ for epoch in range(epoch_num):
 
         print("Relation Class Metrics:")
         for (rel_type, metrics) in rel_class_stats.items():
-            print(rel_type, "~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
+            print(rel_type, #"~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
                   "~ prec:", round(metrics['prec'], 2),
                   "rec:", round(metrics['rec'], 2),
                   "f:", round(metrics['f'], 2))
 
 
-        adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
+        #adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
 
         if config.get("only_test_g_i"):
             cur_dev_score = best_dev_g_i_scores[judge_value]
