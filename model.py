@@ -838,14 +838,14 @@ class LongIE(nn.Module):
                     #                     (batch.relation_nonzero.view(batch_size, -1)))
                     relation_cand = batch.relation_nonzero.view(batch_size, -1)
 
-                    if relation_cand.sum(-1) < 200:
-                        print(relation_cand.sum(-1))
+                    if elem_max((relation_any.argmax(-1) == 1),
+                            (batch.relation_nonzero.view(batch_size, -1))).sum(-1) < 150:
                         relation_cand = elem_max((relation_any.argmax(-1) == 1),
                             (batch.relation_nonzero.view(batch_size, -1)))
                         print(relation_cand.sum(-1))
 
 
-                    if relation_cand.sum(-1) < 200:
+                    if relation_cand.sum(-1) < 150:
                         relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.95
                         relation_cand[relation_cand_neg_sample_mask] = 1
                         print(relation_cand.sum(-1))
