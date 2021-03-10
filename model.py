@@ -542,7 +542,7 @@ class LongIE(nn.Module):
 
         ent_sent_nums = []
 
-        if not predict:
+        if gold_inputs:
 
             max_entities = batch.len_from_here[batch.is_start == 1].sum()
 
@@ -691,7 +691,7 @@ class LongIE(nn.Module):
 
             coref_embed = self.coref_embed(entity_spans.detach())
 
-            if predict:
+            if not gold_inputs:
 
                 cluster_labels = torch.zeros(coref_embed.shape[:2]).cuda().long()
 
@@ -727,7 +727,7 @@ class LongIE(nn.Module):
 
                 coref_embed_ev = self.coref_embed(trigger_spans.detach())
 
-                if predict:
+                if not gold_inputs:
 
                     cluster_labels_ev = torch.zeros(coref_embed_ev.shape[:2]).cuda().long()
 
@@ -853,7 +853,13 @@ class LongIE(nn.Module):
 
                 else:
                     #want more candidates for predict, later thresholded by build_information_graph
-                    relation_cand = (relation_any[:, :, -1] > 0.1)
+                    thr = 0.1
+                    relation_cand = (relation_any[:, :, -1] > thr)
+                    while relation_cand.sum(-1) > 150:
+                        thr += 0.05
+                        relation_cand = (relation_any[:, :, -1] > thr)
+
+                    print(thr, relation_cand.sum(-1))
 
 
                 """if not predict:
@@ -919,8 +925,8 @@ class LongIE(nn.Module):
                                         relation_true_for_cand[b, cur_idx] = batch.relation_labels[b, i, j]
                                         evidence_true_for_cand[b, cur_idx] = batch.evidence_labels[b, i, j]
                                     cur_idx += 1
-
-                    evidence_true_for_cand = evidence_true_for_cand.transpose(-2, -1)
+                    if not predict:
+                        evidence_true_for_cand = evidence_true_for_cand.transpose(-2, -1)
 
 
 
@@ -972,7 +978,7 @@ class LongIE(nn.Module):
                     attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1].\
                         reshape(batch_size, total_rel_cand, num_rel_types, -1).transpose(-2, -1)
 
-                    attn_sum = torch_scatter.scatter_max(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)[0]
+                    attn_sum = torch_scatter.scatter_mean(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.
 
@@ -1063,11 +1069,13 @@ class LongIE(nn.Module):
 
 
     def forward(self, batch: Batch, last_only: bool = True, epoch=0):
+        gold_inputs = self.config.get("only_train_g_i")
+
         is_start, len_from_here, type_pred, cluster_labels, \
         is_start_pred_ev, len_from_here_pred_ev, type_pred_ev, cluster_labels_ev, coref_embed_ev, \
         relation_any, relation_cand, relation_true_for_cand,\
         coref_embeds, relation_pred,\
-        attn_sum, evidence_true_for_cand = self.forward_nn(batch, epoch=epoch)
+        attn_sum, evidence_true_for_cand = self.forward_nn(batch, epoch=epoch, gold_inputs=gold_inputs)
 
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 
@@ -1337,7 +1345,7 @@ class LongIE(nn.Module):
     def predict(self, batch: Batch, epoch=0, gold_inputs=False):
         self.eval()
         with torch.no_grad():
-            result = self.forward_nn(batch, predict=(not gold_inputs), epoch=epoch, gold_inputs=gold_inputs)
+            result = self.forward_nn(batch, predict=True, epoch=epoch, gold_inputs=gold_inputs)
 
         self.train()
         return result
