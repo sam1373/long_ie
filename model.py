@@ -542,7 +542,7 @@ class LongIE(nn.Module):
 
         ent_sent_nums = []
 
-        if gold_inputs:
+        if gold_inputs or (not predict):
 
             max_entities = batch.len_from_here[batch.is_start == 1].sum()
 
@@ -842,13 +842,13 @@ class LongIE(nn.Module):
                             (batch.relation_nonzero.view(batch_size, -1))).sum(-1) < 150:
                         relation_cand = elem_max((relation_any.argmax(-1) == 1),
                             (batch.relation_nonzero.view(batch_size, -1)))
-                        print(relation_cand.sum(-1))
+                        #print(relation_cand.sum(-1))
 
 
                     if relation_cand.sum(-1) < 150:
                         relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.95
                         relation_cand[relation_cand_neg_sample_mask] = 1
-                        print(relation_cand.sum(-1))
+                        #print(relation_cand.sum(-1))
 
 
                 else:
@@ -859,7 +859,7 @@ class LongIE(nn.Module):
                         thr += 0.05
                         relation_cand = (relation_any[:, :, -1] > thr)
 
-                    print(thr, relation_cand.sum(-1))
+                    #print(thr, relation_cand.sum(-1))
 
 
                 """if not predict:
@@ -941,7 +941,8 @@ class LongIE(nn.Module):
 
                     encoder_comp = self.rel_context_project(encoder_outputs)
 
-                    #sent_context_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
+                    if self.config.get("condense_sents"):
+                        encoder_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
 
                     #add additional thing to "offload" attention to
                     encoder_comp = torch.cat((encoder_comp,
@@ -978,7 +979,8 @@ class LongIE(nn.Module):
                     attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)[:, :, :-1].\
                         reshape(batch_size, total_rel_cand, num_rel_types, -1).transpose(-2, -1)
 
-                    attn_sum = torch_scatter.scatter_mean(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)
+                    if not self.config.get("condense_sents"):
+                        attn_sum = torch_scatter.scatter_mean(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.
 

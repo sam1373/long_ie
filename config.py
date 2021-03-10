@@ -81,6 +81,8 @@ class Config():
 
         self.truncate_long_docs = kwargs.pop("truncate_long_docs", True)
 
+        self.condense_sents = kwargs.pop("condense_sents", True)
+
 
     def get(self, attr, default=None):
         return getattr(self, attr, default)

@@ -1453,7 +1453,7 @@ def get_adjustment(prec, rec):
         thr_delta = 0.01
     elif diff < 0.1:
         thr_delta = 0.05
-    elif diff < 0.2:
+    elif diff < 0.3:
         thr_delta = 0.1
     else:
         thr_delta = 0.2
