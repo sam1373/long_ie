@@ -339,7 +339,7 @@ class LongIE(nn.Module):
         self.role_loss = nn.CrossEntropyLoss(weight=role_weights)
 
         self.relation_nonzero_loss = nn.CrossEntropyLoss(weight=torch.Tensor([0.05, 1.]).cuda())
-        self.criteria = nn.CrossEntropyLoss()
+        self.cross_entropy = nn.CrossEntropyLoss()
 
     def label_size(self, key: str):
         return len(self.vocabs.get(key, {}))
@@ -1089,35 +1089,35 @@ class LongIE(nn.Module):
 
         if not self.config.get("only_train_g_i"):
 
-            entity_loss_start = self.criteria(is_start.view(-1, 2), batch.is_start.view(-1))
+            entity_loss_start = self.cross_entropy(is_start.view(-1, 2), batch.is_start.view(-1))
 
             #can use this if set 0-len to not count
             #gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
 
             gold_one = batch.is_start == 1
 
-            entity_loss_len = self.criteria(len_from_here[gold_one].view(-1, 2),
-                                            batch.len_from_here[gold_one].view(-1))
-            entity_loss_type = self.criteria(type_pred.view(-1, len(self.vocabs["entity"])),
-                                             batch.entity_labels[batch.entity_labels > 0])
+            entity_loss_len = self.cross_entropy(len_from_here[gold_one].view(-1, 2),
+                                                 batch.len_from_here[gold_one].view(-1))
+            entity_loss_type = self.cross_entropy(type_pred.view(-1, len(self.vocabs["entity"])),
+                                                  batch.entity_labels[batch.entity_labels > 0])
                                              #batch.type_from_here[:].view(-1))
 
             loss = loss + [entity_loss_start, entity_loss_len, entity_loss_type]
             loss_names = loss_names + ["entity_start", "entity_len", "entity_type"]
 
             if self.config.get("classify_triggers"):
-                trig_loss_start = self.criteria(is_start_pred_ev.view(-1, 2), batch.is_start_ev.view(-1))
+                trig_loss_start = self.cross_entropy(is_start_pred_ev.view(-1, 2), batch.is_start_ev.view(-1))
 
                 # can use this if set 0-len to not count
                 # gold_or_pred_start_one = elem_max(batch.is_start == 1., is_start.argmax(-1) == 1)
 
                 gold_one = batch.is_start_ev == 1
 
-                trig_loss_len = self.criteria(len_from_here_pred_ev[gold_one].view(-1, 2),
-                                              batch.len_from_here_ev[gold_one].view(-1))
+                trig_loss_len = self.cross_entropy(len_from_here_pred_ev[gold_one].view(-1, 2),
+                                                   batch.len_from_here_ev[gold_one].view(-1))
                 if type_pred_ev is not None:
-                    trig_loss_type = self.criteria(type_pred_ev.view(-1, len(self.vocabs["event"])),
-                                                   batch.trigger_labels[batch.trigger_labels > 0])
+                    trig_loss_type = self.cross_entropy(type_pred_ev.view(-1, len(self.vocabs["event"])),
+                                                        batch.trigger_labels[batch.trigger_labels > 0])
                 else:
                     trig_loss_type = 0
                 # batch.type_from_here[:].view(-1))
@@ -1311,13 +1311,17 @@ class LongIE(nn.Module):
             if self.config.get("relation_type_level") == "multitype":
                 #weird loss tbh
 
+                #relation_true_for_cand_with_thr = torch.cat((relation_true_for_cand, torch.zeros(1, 1, )))
+
                 mean_pos_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 1).float(), dim=2)
                 mean_neg_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 0).float(), dim=2)
                 thrs = relation_pred[:, :, -1]
 
                 relation_loss = -(mean_pos_scores - thrs).mean() + -(thrs - mean_neg_scores).mean()
-                #relation_loss = self.relation_loss(relation_pred.view(-1),
-                #                          relation_true_for_cand.view(-1).float())
+
+                relation_loss += self.relation_loss(relation_pred[:, :, :-1].reshape(-1),
+                                          relation_true_for_cand.view(-1).float())
+
             else:
                 relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
                                           relation_true_for_cand.view(-1))
