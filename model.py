@@ -190,7 +190,7 @@ class LongIE(nn.Module):
                  span_transformer_layers: int = 10,#10
                  encoder_dropout_prob: float = 0.,
                  type_embed_dim: int = 32,
-                 comp_dim: int = 256,
+                 comp_dim: int = 128,
                  ):
         super().__init__()
 
@@ -297,7 +297,7 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=6)
+        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=3, num_heads=8)
 
         self.rel_type_embed = nn.Embedding(len(vocabs['relation']), comp_dim * 2)
 
@@ -834,12 +834,22 @@ class LongIE(nn.Module):
 
 
                 if not predict:
-                    relation_cand = elem_max((relation_any.argmax(-1) == 1),
-                                         (batch.relation_nonzero.view(batch_size, -1)))
+                    #relation_cand = elem_max((relation_any.argmax(-1) == 1),
+                    #                     (batch.relation_nonzero.view(batch_size, -1)))
+                    relation_cand = batch.relation_nonzero.view(batch_size, -1)
 
-                    if not gold_inputs:
-                        relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.9
+                    if relation_cand.sum(-1) < 200:
+                        print(relation_cand.sum(-1))
+                        relation_cand = elem_max((relation_any.argmax(-1) == 1),
+                            (batch.relation_nonzero.view(batch_size, -1)))
+                        print(relation_cand.sum(-1))
+
+
+                    if relation_cand.sum(-1) < 200:
+                        relation_cand_neg_sample_mask = torch.rand(relation_cand.shape).cuda() > 0.95
                         relation_cand[relation_cand_neg_sample_mask] = 1
+                        print(relation_cand.sum(-1))
+
 
                 else:
                     #want more candidates for predict, later thresholded by build_information_graph
