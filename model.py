@@ -1338,8 +1338,8 @@ class LongIE(nn.Module):
                 th_label[:, :, -1] = 1.
 
                 # Rank positive classes to TH
-                pos_and_th = relation_pred - (1 - labels - th_label) * 1e30
-                loss1 = -(F.log_softmax(pos_and_th, dim=-1) * labels).sum(1)
+                #pos_and_th = relation_pred - (1 - labels - th_label) * 1e30
+                loss1 = -(F.log_softmax(relation_pred, dim=-1) * labels).sum(1)
 
                 # Rank TH to negative classes
                 neg_and_th = relation_pred - labels * 1e30

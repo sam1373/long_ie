@@ -576,7 +576,9 @@ def build_information_graph(batch,
                         else:
 
                             rel_pred_scores = relation_pred[graph_idx, cur_idx]
-                            rel_pred_types = (rel_pred_scores[:-1] > rel_pred_scores[-1]).float().nonzero().view(-1).tolist()
+
+                            #rel_pred_scores[-1] or rel_type_thr
+                            rel_pred_types = (rel_pred_scores[:-1] > rel_type_thr).float().nonzero().view(-1).tolist()
                             if len(rel_pred_types) > 0:
                                 predicted_not_zero = True
                             rel_pred = [relation_itos[i] for i in rel_pred_types]
