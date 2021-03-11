@@ -980,7 +980,7 @@ class LongIE(nn.Module):
                         reshape(batch_size, total_rel_cand, num_rel_types + 1, -1).transpose(-2, -1)[:, :, :, :-1]
 
                     if not self.config.get("condense_sents"):
-                        attn_sum = torch_scatter.scatter_mean(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)
+                        attn_sum = torch_scatter.scatter_sum(attn_sum, batch.sent_nums.unsqueeze(1), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.
 
