@@ -242,8 +242,8 @@ class LongIE(nn.Module):
 
         self.relation_clf = Linears([comp_dim * 2, hidden_dim, 1])
 
-        if self.config.get("relation_type_level") == "multitype":
-            self.relation_clf = nn.Sequential(self.relation_clf, nn.Sigmoid())
+        #if self.config.get("relation_type_level") == "multitype":
+        #    self.relation_clf = nn.Sequential(self.relation_clf, nn.Sigmoid())
 
         self.coref_embed = Linears([self.entity_dim, hidden_dim, coref_embed_dim])
 
@@ -1137,23 +1137,35 @@ class LongIE(nn.Module):
 
         if self.config.get("classify_evidence"):
 
-            #evid_loss = -(evidence_true_for_cand * attn_sum).mean()
-            evid_loss = -torch.clamp(attn_sum[evidence_true_for_cand == 1], max=1.2).mean()
+            """evid_loss = -torch.clamp(attn_sum[evidence_true_for_cand == 1], max=1.2).mean()
 
             if self.config.get("relation_type_level") == "multitype":
                 false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(2) > 0)
             else:
                 false_evid_true_rel = (evidence_true_for_cand == 0) * (relation_true_for_cand.unsqueeze(-1) > 0)
 
-            evid_loss_neg = attn_sum[false_evid_true_rel].mean()
+            evid_loss_neg = attn_sum[false_evid_true_rel].mean()"""
+
+            attn_sum = (attn_sum - 0.5) * 10.
+
+            pos_rel = (relation_true_for_cand.unsqueeze(2) > 0).expand(-1, -1, attn_sum.shape[2], -1)
+            attn_sum = attn_sum[pos_rel]
+            evidence_true_for_cand = evidence_true_for_cand[pos_rel]
+
+
+
+            #evid_for_pos_rel = attn_sum - (1 - pos_rel.float()) * 1e30
+            evid_loss = -(F.log_softmax(attn_sum, dim=-1) * evidence_true_for_cand).sum(-1)
+
+            evid_loss = evid_loss.mean()
 
             #print(-attn_sum.mean(), evid_loss)
 
             loss.append(evid_loss)
             loss_names.append("evidence")
 
-            loss.append(evid_loss_neg)
-            loss_names.append("evidence_neg")
+            #loss.append(evid_loss_neg)
+            #loss_names.append("evidence_neg")
 
 
         if self.config.get("do_coref") and not self.config.get("only_train_g_i"):
@@ -1313,14 +1325,32 @@ class LongIE(nn.Module):
 
                 #relation_true_for_cand_with_thr = torch.cat((relation_true_for_cand, torch.zeros(1, 1, )))
 
-                mean_pos_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 1).float(), dim=2)
-                mean_neg_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 0).float(), dim=2)
-                thrs = relation_pred[:, :, -1]
+                #mean_pos_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 1).float(), dim=2)
+                #mean_neg_scores = torch.mean(relation_pred[:, :, :-1] * (relation_true_for_cand == 0).float(), dim=2)
+                #thrs = relation_pred[:, :, -1]
 
-                relation_loss = -(mean_pos_scores - thrs).mean() + -(thrs - mean_neg_scores).mean()
+                #relation_loss = -(mean_pos_scores - thrs).mean() + -(thrs - mean_neg_scores).mean()
 
-                relation_loss += self.relation_loss(relation_pred[:, :, :-1].reshape(-1),
-                                          relation_true_for_cand.view(-1).float())
+                labels = torch.cat((relation_true_for_cand,
+                                                    torch.zeros((relation_true_for_cand.shape[:2]) + (1,)).long().cuda()),
+                                                    dim=-1)
+                th_label = torch.zeros_like(labels).cuda()
+                th_label[:, :, -1] = 1.
+
+                # Rank positive classes to TH
+                pos_and_th = relation_pred - (1 - labels - th_label) * 1e30
+                loss1 = -(F.log_softmax(pos_and_th, dim=-1) * labels).sum(1)
+
+                # Rank TH to negative classes
+                neg_and_th = relation_pred - labels * 1e30
+                loss2 = -(F.log_softmax(neg_and_th, dim=-1) * th_label).sum(1)
+
+                # Sum two parts
+                relation_loss = loss1 + loss2
+                relation_loss = relation_loss.mean()
+
+                #relation_loss += self.relation_loss(relation_pred[:, :, :-1].reshape(-1),
+                #                          relation_true_for_cand.view(-1).float())
 
             else:
                 relation_loss = self.relation_loss(relation_pred.view(-1, relation_pred.shape[-1]),
