@@ -297,11 +297,13 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=3, num_heads=8)
+        evid_trans_num_layers = 3
+
+        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=evid_trans_num_layers, num_heads=8)
 
         self.rel_type_embed = nn.Embedding(len(vocabs['relation']) + 1, comp_dim * 2)
 
-        #self.attn_score_proj = Linears([1, 16, 16, 1])
+        self.attn_score_proj = Linears([evid_trans_num_layers, 16, 16, 1])
 
         """nn.Transformer(num_encoder_layers = 0,
                       num_decoder_layers = 3,
@@ -981,20 +983,23 @@ class LongIE(nn.Module):
                     if self.config.get("use_last_attn"):
                         attn_sum = attns[-1]
                     else:
-                        attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)
+                        #attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)
+                        attn_sum = torch.stack(attns, dim=-1)
+
+                    evid_attn_cands = encoder_comp.shape[1]
 
                     # [:, :, :-1] to remove the extra fake "evidence"
                     attn_sum = attn_sum.\
-                        reshape(batch_size, total_rel_cand, num_rel_types + 1, -1).transpose(-2, -1)[:, :, :, :-1]
+                        reshape(batch_size, total_rel_cand, num_rel_types + 1, evid_attn_cands, -1).transpose(2, 3)[:, :, :, :-1]
 
                     if not self.config.get("condense_sents"):
-                        attn_sum_thr = attn_sum[:, :, -1].unsqueeze(2)
-                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-1], batch.sent_nums.unsqueeze(1), dim=2)
+                        attn_sum_thr = attn_sum[:, :, -1, :].unsqueeze(2)
+                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-1, :], batch.sent_nums.unsqueeze(1), dim=2)
                         attn_sum = torch.cat((attn_sum, attn_sum_thr), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.
 
-                    #attn_sum = self.attn_score_proj(attn_sum.unsqueeze(-1)).squeeze(-1)
+                    attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
 
                     """attn_highest = attn_sum.max()
                     attn_mean = attn_sum.mean()
@@ -1174,7 +1179,8 @@ class LongIE(nn.Module):
             th_label = torch.zeros_like(labels).cuda()
             th_label[:, -1] = 1.
 
-            loss1 = -(F.log_softmax(attn_sum, dim=-1) * labels).sum(-1)
+            pos_and_th = attn_sum - (1 - labels - th_label) * 1e30
+            loss1 = -(F.log_softmax(pos_and_th, dim=-1) * labels).sum(-1)
 
             # Rank TH to negative classes
             neg_and_th = attn_sum - labels * 1e30
@@ -1362,8 +1368,8 @@ class LongIE(nn.Module):
                 th_label[:, :, -1] = 1.
 
                 # Rank positive classes to TH
-                #pos_and_th = relation_pred - (1 - labels - th_label) * 1e30
-                loss1 = -(F.log_softmax(relation_pred, dim=-1) * labels).sum(1)
+                pos_and_th = relation_pred - (1 - labels - th_label) * 1e30
+                loss1 = -(F.log_softmax(pos_and_th, dim=-1) * labels).sum(1)
 
                 # Rank TH to negative classes
                 neg_and_th = relation_pred - labels * 1e30
