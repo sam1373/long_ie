@@ -83,6 +83,10 @@ class Config():
 
         self.condense_sents = kwargs.pop("condense_sents", True)
 
+        self.use_last_attn = kwargs.pop("use_last_attn", False)
+
+        #self.evid_self_attn = kwargs.pop("evid_self_attn", True)
+
 
     def get(self, attr, default=None):
         return getattr(self, attr, default)

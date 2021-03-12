@@ -578,7 +578,7 @@ def build_information_graph(batch,
                             rel_pred_scores = relation_pred[graph_idx, cur_idx]
 
                             #rel_pred_scores[-1] or rel_type_thr
-                            rel_pred_types = (rel_pred_scores[:-1] > rel_type_thr).float().nonzero().view(-1).tolist()
+                            rel_pred_types = (rel_pred_scores[:-1] > rel_pred_scores[-1]).float().nonzero().view(-1).tolist()
                             if len(rel_pred_types) > 0:
                                 predicted_not_zero = True
                             rel_pred = [relation_itos[i] for i in rel_pred_types]
@@ -597,11 +597,12 @@ def build_information_graph(batch,
                                 k_s = relation_itos[k]
                                 cur_evid_class[k_s] = []
                                 for l in range(len(attn_cur)):
-                                    if attn_cur[l][k] > extra[0]:
+                                    if attn_cur[l][k] > attn_cur[l][-1]:
                                         cur_evid.append(l)
                                         cur_evid_class[k_s].append(l)
                             evidence.append(cur_evid)
                             evidence_class.append(cur_evid_class)
+
                             evid_scores.append(attn_cur)
 
                     if rel_cand[i, j]:
@@ -1463,8 +1464,8 @@ def get_adjustment(prec, rec):
     if prec > rec:
         thr_delta *= -1
 
-    if prec < 0.01:
-        thr_delta = 0.05
+    if prec < 0.01 and rec < 0.01:
+        thr_delta = 0.1
 
     return thr_delta
 

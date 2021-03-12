@@ -508,7 +508,7 @@ for epoch in range(epoch_num):
 
         print("Relation Class Metrics:")
         for (rel_type, metrics) in rel_class_stats.items():
-            print(rel_type, "~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
+            print(rel_type, #"~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
                   "~ prec:", round(metrics['prec'], 2),
                   "rec:", round(metrics['rec'], 2),
                   "f:", round(metrics['f'], 2))
