@@ -583,7 +583,7 @@ def build_information_graph(batch,
                                 predicted_not_zero = True
                             rel_pred = [relation_itos[i] for i in rel_pred_types]
 
-                        attn_cur = attn_sum[graph_idx, cur_idx].tolist()
+                        attn_cur = attn_sum[graph_idx, cur_idx].transpose(-2, -1).tolist()
 
                         if predicted_not_zero:
                             relations.append((i, j, rel_pred))
@@ -596,8 +596,8 @@ def build_information_graph(batch,
                                     continue
                                 k_s = relation_itos[k]
                                 cur_evid_class[k_s] = []
-                                for l in range(len(attn_cur)):
-                                    if attn_cur[l][k] > attn_cur[l][-1]:
+                                for l in range(len(attn_cur[0]) - 1):
+                                    if attn_cur[k][l] > attn_cur[k][-1]:
                                         cur_evid.append(l)
                                         cur_evid_class[k_s].append(l)
                             evidence.append(cur_evid)
@@ -1146,8 +1146,11 @@ def summary_graph(pred_graph, true_graph, batch,
 
         rel_pair_dict[(arg1, arg2)]['pred_types'] = set(t)
         rel_pair_dict[(arg1, arg2)]['pred_evid'] = dict()
+        rel_pair_dict[(arg1, arg2)]['pred_evid_scores'] = dict()
+
         for type in t:
             rel_pair_dict[(arg1, arg2)]['pred_evid'][type] = pred_graph.evidence_class[i][type]
+            rel_pair_dict[(arg1, arg2)]['pred_evid_scores'][type] = pred_graph.evid_scores[i][vocabs['relation'][type]]
 
     true_relations = []
 
@@ -1177,11 +1180,13 @@ def summary_graph(pred_graph, true_graph, batch,
         for type in d['pred_types'].intersection(d['true_types']):
             rel_analysis_text += type + "\n\n"
             rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n\n"
+            rel_analysis_text += "  Predicted evidence scores: " + str(d['pred_evid_scores'][type]) + "\n\n"
             rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n\n"
         rel_analysis_text += "Incorrect types:\n\n"
         for type in d['pred_types'] - d['true_types']:
             rel_analysis_text += type + "\n\n"
             rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n\n"
+            rel_analysis_text += "  Predicted evidence scores: " + str(d['pred_evid_scores'][type]) + "\n\n"
         rel_analysis_text += "Not predicted types:\n\n"
         for type in d['true_types'] - d['pred_types']:
             rel_analysis_text += type + "\n\n"

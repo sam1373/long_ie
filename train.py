@@ -423,7 +423,7 @@ for epoch in range(epoch_num):
     judge_value = "evidence"
 
 
-    if epoch % 5 == 0:
+    if epoch % 2 == 0:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
 

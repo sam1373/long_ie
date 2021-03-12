@@ -190,7 +190,7 @@ class LongIE(nn.Module):
                  span_transformer_layers: int = 10,#10
                  encoder_dropout_prob: float = 0.,
                  type_embed_dim: int = 32,
-                 comp_dim: int = 256,
+                 comp_dim: int = 128,
                  ):
         super().__init__()
 
@@ -297,11 +297,11 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=6, num_heads=8)
+        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=3, num_heads=8)
 
         self.rel_type_embed = nn.Embedding(len(vocabs['relation']) + 1, comp_dim * 2)
 
-        self.attn_score_proj = Linears([1, 16, 16, 1])
+        #self.attn_score_proj = Linears([1, 16, 16, 1])
 
         """nn.Transformer(num_encoder_layers = 0,
                       num_decoder_layers = 3,
@@ -994,7 +994,7 @@ class LongIE(nn.Module):
 
                     #attn_sum[attn_sum < 1.] = 0.
 
-                    attn_sum = self.attn_score_proj(attn_sum.unsqueeze(-1)).squeeze(-1)
+                    #attn_sum = self.attn_score_proj(attn_sum.unsqueeze(-1)).squeeze(-1)
 
                     """attn_highest = attn_sum.max()
                     attn_mean = attn_sum.mean()
