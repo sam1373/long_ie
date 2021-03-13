@@ -192,8 +192,10 @@ class ContextTransformer(nn.Module):
 
     def forward(self, context, x):
 
-        x[-2, :] += self.thr_emb
-        x[-1, :] += self.offload_emb
+        #x[-2, :] += self.thr_emb
+        #x[-1, :] += self.offload_emb
+        context[-2, :] += self.thr_emb
+        context[-1, :] += self.offload_emb
 
         attns = []
 
