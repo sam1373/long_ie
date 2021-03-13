@@ -506,12 +506,12 @@ for epoch in range(epoch_num):
         for k, v in best_dev_g_i_scores.items():
             writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
-        print("Relation Class Metrics:")
+        """print("Relation Class Metrics:")
         for (rel_type, metrics) in rel_class_stats.items():
             print(rel_type, #"~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
                   "~ prec:", round(metrics['prec'], 2),
                   "rec:", round(metrics['rec'], 2),
-                  "f:", round(metrics['f'], 2))
+                  "f:", round(metrics['f'], 2))"""
 
 
         adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)

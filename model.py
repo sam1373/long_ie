@@ -299,6 +299,13 @@ class LongIE(nn.Module):
         #both are comp_dim * 2
         evid_trans_num_layers = 3
 
+
+        self.thr_emb = nn.Parameter(torch.randn(comp_dim * 2).cuda() * 0.1)
+        self.offload_emb = nn.Parameter(torch.randn(comp_dim * 2).cuda() * 0.1)
+        self.evid_encoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=comp_dim * 2, nhead=8),
+                                                          evid_trans_num_layers,
+                                                          nn.LayerNorm(comp_dim * 2))
+
         self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=evid_trans_num_layers, num_heads=8)
 
         self.rel_type_embed = nn.Embedding(len(vocabs['relation']) + 1, comp_dim * 2)
@@ -972,8 +979,13 @@ class LongIE(nn.Module):
 
                     hidden_size = relation_cand_pairs.shape[-1]
 
+                    encoder_comp = encoder_comp.transpose(0, 1)
+                    encoder_comp[-2, :] += self.thr_emb
+                    encoder_comp[-1, :] += self.offload_emb
 
-                    relation_cand_pairs_trans, attns = self.rel_transformer(encoder_comp.transpose(0, 1),
+                    encoder_comp = self.evid_encoder(encoder_comp)
+
+                    relation_cand_pairs_trans, attns = self.rel_transformer(encoder_comp,
                                                                relation_cand_pairs.view(batch_size, -1, hidden_size).transpose(0, 1))
 
 
@@ -987,7 +999,7 @@ class LongIE(nn.Module):
                         #attn_sum = torch.sum(torch.stack(attns, dim=0), dim=0)
                         attn_sum = torch.stack(attns, dim=-1)
 
-                    evid_attn_cands = encoder_comp.shape[1]
+                    evid_attn_cands = encoder_comp.shape[0]
 
                     # [:, :, :-1] to remove the extra fake "evidence"
                     attn_sum = attn_sum.\
