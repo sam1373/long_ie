@@ -165,7 +165,8 @@ class ContextTransformer(nn.Module):
 
         super().__init__()
 
-        self.aggr_emb = nn.Parameter(torch.randn(hid_dim).cuda() * 0.1)
+        self.thr_emb = nn.Parameter(torch.randn(hid_dim).cuda() * 0.1)
+        self.offload_emb = nn.Parameter(torch.randn(hid_dim).cuda() * 0.1)
 
         self.attn, self.norm = [], []
         self.lin = []
@@ -191,7 +192,8 @@ class ContextTransformer(nn.Module):
 
     def forward(self, context, x):
 
-        x[:, -1] += self.aggr_emb
+        x[-2, :] += self.thr_emb
+        x[-1, :] += self.offload_emb
 
         attns = []
 

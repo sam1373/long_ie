@@ -596,8 +596,8 @@ def build_information_graph(batch,
                                     continue
                                 k_s = relation_itos[k]
                                 cur_evid_class[k_s] = []
-                                for l in range(len(attn_cur[0]) - 1):
-                                    if attn_cur[k][l] > attn_cur[k][-1]:
+                                for l in range(len(attn_cur[0]) - 2):
+                                    if attn_cur[k][l] > attn_cur[k][-2]:
                                         cur_evid.append(l)
                                         cur_evid_class[k_s].append(l)
                             evidence.append(cur_evid)

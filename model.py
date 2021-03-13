@@ -948,9 +948,10 @@ class LongIE(nn.Module):
                     if self.config.get("condense_sents"):
                         encoder_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
 
-                    #add additional thing to "offload" attention to
+                    #-2 - threshold token
+                    #-1 - offload token
                     encoder_comp = torch.cat((encoder_comp,
-                                                   torch.zeros(batch_size, 1, self.comp_dim * 2).cuda()), dim=1)
+                                                   torch.zeros(batch_size, 2, self.comp_dim * 2).cuda()), dim=1)
 
                     #relation_cand_pairs = self.rel_transformer(encoder_comp.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
@@ -993,13 +994,14 @@ class LongIE(nn.Module):
                         reshape(batch_size, total_rel_cand, num_rel_types + 1, evid_attn_cands, -1).transpose(2, 3)[:, :, :, :-1]
 
                     if not self.config.get("condense_sents"):
-                        attn_sum_thr = attn_sum[:, :, -1, :].unsqueeze(2)
-                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-1, :], batch.sent_nums.unsqueeze(1), dim=2)
-                        attn_sum = torch.cat((attn_sum, attn_sum_thr), dim=2)
+                        attn_sum_special = attn_sum[:, :, -2:, :]
+                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-2, :], batch.sent_nums.unsqueeze(1), dim=2)
+                        attn_sum = torch.cat((attn_sum, attn_sum_special), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.
 
-                    attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
+                    #attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
+                    attn_sum = attn_sum.sum(-1)
 
                     """attn_highest = attn_sum.max()
                     attn_mean = attn_sum.mean()
@@ -1165,6 +1167,8 @@ class LongIE(nn.Module):
 
             #attn_sum = (attn_sum - 0.5) * 10.
 
+            attn_sum = attn_sum[:, :, :-1]
+            #remove offload, leave threshold
             total_evid_cand = attn_sum.shape[2]
 
             pos_rel = (relation_true_for_cand.unsqueeze(2) > 0).expand(-1, -1, attn_sum.shape[2], -1)
