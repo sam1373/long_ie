@@ -1,7 +1,7 @@
 import enum
 import logging
 from typing import Dict, List, Tuple, Any
-
+from collections import defaultdict
 
 import dgl
 from dgl.utils.internal import relabel
@@ -297,7 +297,7 @@ class LongIE(nn.Module):
 
         #attn between rel pairs and enc tokens after init project
         #both are comp_dim * 2
-        evid_trans_num_layers = 3
+        evid_trans_num_layers = 1
 
 
         self.thr_emb = nn.Parameter(torch.randn(comp_dim * 2).cuda() * 0.1)
@@ -306,11 +306,14 @@ class LongIE(nn.Module):
                                                           evid_trans_num_layers,
                                                           nn.LayerNorm(comp_dim * 2))
 
-        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=evid_trans_num_layers, num_heads=8)
+        self.rel_transformer = ContextTransformer(comp_dim * 2, num_layers=evid_trans_num_layers, num_heads=16)
 
         self.rel_type_embed = nn.Embedding(len(vocabs['relation']) + 1, comp_dim * 2)
 
         self.attn_score_proj = Linears([evid_trans_num_layers, 16, 16, 1])
+
+        self.evid_pos_emb = nn.Embedding(512, comp_dim * 2)
+        self.evid_sent_num_emb = nn.Embedding(100, comp_dim * 2)
 
         """nn.Transformer(num_encoder_layers = 0,
                       num_decoder_layers = 3,
@@ -549,7 +552,7 @@ class LongIE(nn.Module):
         if self.config.get('use_sent_context'):
             sent_context = torch_scatter.scatter_max(encoder_outputs, batch.sent_nums, dim=1)[0]
 
-        entity_span_list = []
+        entity_span_dict = defaultdict(lambda : [])
 
         ent_sent_nums = []
 
@@ -563,7 +566,7 @@ class LongIE(nn.Module):
                 for i in range(max_entities):
                     l, r = batch.pos_entity_offsets[b][i]
 
-                    entity_span_list.append((l, r))
+                    entity_span_dict[l].append((r, i))
                     if self.config.get("use_sent_context"):
                         entity_spans[b, i] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
                                                         sent_context[b, batch.sent_nums[b, l]]),
@@ -622,7 +625,7 @@ class LongIE(nn.Module):
                             l = i
                             r = l + max(1, j)
 
-                            entity_span_list.append((l, r))
+                            entity_span_dict[l].append((r, cur_ent))
 
                             if self.config.get("use_sent_context"):
                                 entity_spans[b, cur_ent] = torch.cat((torch.max(encoder_outputs[b, l:r], dim=0)[0],
@@ -812,6 +815,69 @@ class LongIE(nn.Module):
                                                expand(-1, -1, entity_aggr.shape[-1]))
 
 
+            entity_spans = entity_aggr_aligned
+
+
+            #create special context repr
+            #-replace multi-token ent mentions with single token aggregated entity repr
+            #re-add positional embeddings
+            #add sent num embeddings
+
+            #for bs 1 only
+
+            evid_context_repr = []
+            pos_nums = []
+            sent_nums = []
+
+
+            cur_token = 0
+            cur_pos = 0
+            cur_sent = 0
+
+            text_repr = []
+
+            while cur_token < encoder_outputs.shape[1]:
+                end_sent = batch.tokens[0][cur_token] == "</s>"
+
+                skip = 0
+                for (r, ent_num) in entity_span_dict[cur_token]:
+                    skip = max(skip, r - cur_token)
+                    evid_context_repr.append(entity_spans[0, ent_num])
+                    pos_nums.append(cur_pos)
+                    sent_nums.append(cur_sent)
+                    text_repr.append(batch.tokens[0][cur_token:r])
+                    cur_pos += 1
+
+
+                if skip == 0:
+                    pos_nums.append(cur_pos)
+                    sent_nums.append(cur_sent)
+                    evid_context_repr.append(encoder_outputs[0, cur_token])
+                    text_repr.append(batch.tokens[0][cur_token])
+
+                    cur_token += 1
+                    cur_pos += 1
+                else:
+                    cur_token += skip
+
+                if end_sent:
+                    cur_sent += 1
+
+
+
+
+            evid_context_repr = torch.stack(evid_context_repr, dim=0).unsqueeze(0)
+
+            pos_emb = self.evid_pos_emb(torch.arange(evid_context_repr.shape[1]).cuda()).unsqueeze(0)
+            evid_sent_nums = torch.Tensor(sent_nums).long().cuda().unsqueeze(0)
+            sent_emb = self.evid_sent_num_emb(evid_sent_nums)
+
+            encoder_comp = self.rel_context_project(evid_context_repr)
+
+            encoder_comp = encoder_comp + pos_emb * 0.1 + sent_emb * 0.1
+
+
+
             if self.config.get("classify_relations"):
                 pair_ids = torch.LongTensor(get_pairwise_idxs(cluster_num, cluster_num)).cuda()
                 entity_pairs = torch.gather(entity_aggr, 1, pair_ids.view(1, -1, 1).expand(entity_spans.shape[0], -1,
@@ -950,10 +1016,10 @@ class LongIE(nn.Module):
                     #relation_cand_pairs = self.rel_transformer(encoder_outputs.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
-                    encoder_comp = self.rel_context_project(encoder_outputs)
+                    #encoder_comp = self.rel_context_project(encoder_outputs)
 
                     if self.config.get("condense_sents"):
-                        encoder_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
+                        encoder_comp = torch_scatter.scatter_max(encoder_comp, evid_sent_nums, dim=1)[0]
 
                     #-2 - threshold token
                     #-1 - offload token
@@ -983,7 +1049,7 @@ class LongIE(nn.Module):
                     encoder_comp[-2, :] += self.thr_emb
                     encoder_comp[-1, :] += self.offload_emb
 
-                    encoder_comp = self.evid_encoder(encoder_comp)
+                    #encoder_comp = self.evid_encoder(encoder_comp)
 
                     relation_cand_pairs_trans, attns = self.rel_transformer(encoder_comp,
                                                                relation_cand_pairs.view(batch_size, -1, hidden_size).transpose(0, 1))
@@ -1007,7 +1073,7 @@ class LongIE(nn.Module):
 
                     if not self.config.get("condense_sents"):
                         attn_sum_special = attn_sum[:, :, -2:, :]
-                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-2, :], batch.sent_nums.unsqueeze(1), dim=2)
+                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-2, :], evid_sent_nums.unsqueeze(1), dim=2)
                         attn_sum = torch.cat((attn_sum, attn_sum_special), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.
@@ -1029,7 +1095,6 @@ class LongIE(nn.Module):
                     relation_pred = relation_pred.view(batch_size, -1, num_rel_types + 1)
 
 
-            entity_spans = entity_aggr_aligned
 
 
             if self.config.get("classify_triggers") and trigger_spans is not None:
@@ -1183,14 +1248,20 @@ class LongIE(nn.Module):
             #remove offload, leave threshold
             total_evid_cand = attn_sum.shape[2]
 
-            pos_rel = (relation_true_for_cand.unsqueeze(2) > 0).expand(-1, -1, attn_sum.shape[2], -1)
+            pos_rel = (relation_true_for_cand.unsqueeze(2) > 0).expand(-1, -1, attn_sum.shape[2], -1).transpose(-2, -1)
+            attn_sum = attn_sum.transpose(-2, -1)
 
             attn_sum = attn_sum[pos_rel].view(-1, total_evid_cand)
+
+            #labels_bad_maybe = torch.cat((evidence_true_for_cand,
+            #                    torch.zeros((evidence_true_for_cand.shape[:-2]) + (1,) +
+            #                                (evidence_true_for_cand.shape[-1],)).cuda()),
+            #                   dim=-2)[pos_rel.transpose(-2, -1)].view(-1, total_evid_cand)
 
             labels = torch.cat((evidence_true_for_cand,
                                 torch.zeros((evidence_true_for_cand.shape[:-2]) + (1,) +
                                             (evidence_true_for_cand.shape[-1],)).cuda()),
-                               dim=-2)[pos_rel].view(-1, total_evid_cand)
+                               dim=-2).transpose(-2, -1)[pos_rel].view(-1, total_evid_cand)
 
             th_label = torch.zeros_like(labels).cuda()
             th_label[:, -1] = 1.
