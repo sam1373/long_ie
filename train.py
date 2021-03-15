@@ -534,6 +534,8 @@ for epoch in range(epoch_num):
             best_dev_score = cur_dev_score
             is_best = True
 
+            writer.add_scalar("best_dev_score", best_dev_score, global_step)
+
     schedule.step(epoch=epoch + 1, metrics=cur_dev_score)
 
     if epoch % 6 == 0 and not args.debug:
