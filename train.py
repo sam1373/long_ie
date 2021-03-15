@@ -528,7 +528,7 @@ for epoch in range(epoch_num):
 
         cur_dev_score = cur_dev_score['f']
 
-        if cur_dev_score > best_dev_score:
+        if cur_dev_score > best_dev_score and epoch % 6 == 0:
             print('Saving res for best dev model by ' + judge_value)
             #torch.save(state, "model.pt")
             best_dev_score = cur_dev_score
@@ -536,7 +536,7 @@ for epoch in range(epoch_num):
 
     schedule.step(epoch=epoch + 1, metrics=cur_dev_score)
 
-    if epoch % 5 == 0 and not args.debug:
+    if epoch % 6 == 0 and not args.debug:
 
         gold_train_graphs, pred_train_graphs = [], []
         pred_train_gold_input_graphs = []
@@ -580,7 +580,7 @@ for epoch in range(epoch_num):
         for k, v in train_g_i_scores.items():
             writer.add_scalar('train_gi_' + k + '_f', v['f'], global_step)
 
-    if epoch % 5 == 0 and do_test and not(produce_outputs and not is_best) and not args.debug:
+    if epoch % 6 == 0 and do_test and not(produce_outputs and not is_best) and not args.debug:
 
         fact_dict_list = []
 
