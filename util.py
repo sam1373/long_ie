@@ -1487,3 +1487,8 @@ def adjust_thresholds(thr, stats, vocabs, ep=0):
 
         thr[idx] = max(thr[idx], 0.01)
         thr[idx] = min(thr[idx], 0.99)
+
+def weight_reset(m):
+    reset_parameters = getattr(m, "reset_parameters", None)
+    if callable(reset_parameters):
+        m.reset_parameters()

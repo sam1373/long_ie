@@ -21,7 +21,8 @@ from data2 import IEDataset
 from scorer import score_graphs
 from util import generate_vocabs, load_valid_patterns, save_result, best_score_by_task, \
     build_information_graph, label2onehot, load_model, \
-    summary_graph, load_word_embed, get_facts, get_rev_dict, adjust_thresholds, get_adjustment
+    summary_graph, load_word_embed, get_facts, get_rev_dict, adjust_thresholds, get_adjustment, \
+    weight_reset
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -300,6 +301,7 @@ state = dict(model=model.state_dict(),
 
 losses = []
 best_dev_score = best_test_score = 0.3
+reset_value = 0.1
 
 global_step = 0
 
@@ -329,7 +331,9 @@ extra_value_num = len(extra_values)
 
 rel_type_thr = [0.1 for i in range(len(vocabs['relation']))]
 
-for epoch in range(epoch_num):
+epoch = 0
+
+while epoch < epoch_num:
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0 and not args.debug:
@@ -350,6 +354,9 @@ for epoch in range(epoch_num):
         for batch_idx, batch in enumerate(tqdm(dataloader, ncols=75)):
 
             if args.debug and batch_idx == 300:
+                break
+
+            if epoch == 0 and batch_idx == 1000:
                 break
 
             loss, train_loss_names = model(batch, epoch=epoch)
@@ -528,6 +535,12 @@ for epoch in range(epoch_num):
 
         cur_dev_score = cur_dev_score['f']
 
+        if cur_dev_score < reset_value:
+            epoch = 0
+            model.apply(weight_reset)
+            print("Bad initialization. Resetting...")
+            continue
+
         if cur_dev_score > best_dev_score and epoch % 6 == 0:
             print('Saving res for best dev model by ' + judge_value)
             #torch.save(state, "model.pt")
@@ -682,6 +695,9 @@ for epoch in range(epoch_num):
 
         for k, v in test_g_i_scores.items():
             writer.add_scalar('test_sent_gi_' + k + '_f', v['f'], global_step)
+
+
+    epoch += 1
 
     # log_writer.write(json.dumps({'epoch': epoch,
     #                             'dev': dev_scores,

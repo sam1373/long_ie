@@ -64,7 +64,8 @@ class Linears(nn.Module):
                  dimensions: List[int],
                  activation: str='relu',
                  dropout_prob: float=0.0,
-                 bias: bool=True):
+                 bias: bool=True,
+                 use_regs: bool=True):
         super().__init__()
         assert len(dimensions) > 1
         self.layers = nn.ModuleList([nn.Linear(dimensions[i], dimensions[i + 1], bias=bias)
@@ -72,7 +73,9 @@ class Linears(nn.Module):
         self.activation = activation
         self.func = getattr(torch, activation)
         self.dropout = nn.Dropout(dropout_prob, inplace=True)
-        self.regs = nn.ModuleList([RegLayer(dimensions[i]) for i in range(1, len(dimensions) - 1)])
+        self.use_regs = use_regs
+        if use_regs:
+            self.regs = nn.ModuleList([RegLayer(dimensions[i]) for i in range(1, len(dimensions) - 1)])
 
         self.init_parameters()
 
@@ -81,7 +84,8 @@ class Linears(nn.Module):
             if i > 0:
                 inputs = self.func(inputs)
                 #inputs = self.dropout(inputs)
-                inputs = self.regs[i - 1](inputs)
+                if self.use_regs:
+                    inputs = self.regs[i - 1](inputs)
             inputs = layer(inputs)
         return inputs
 
@@ -310,7 +314,7 @@ class LongIE(nn.Module):
 
         self.rel_type_embed = nn.Embedding(len(vocabs['relation']) + 1, comp_dim * 2)
 
-        self.attn_score_proj = Linears([evid_trans_num_layers, 16, 16, 1])
+        self.attn_score_proj = Linears([evid_trans_num_layers, 16, 1])
 
         self.evid_pos_emb = nn.Embedding(512, comp_dim * 2)
         self.evid_sent_num_emb = nn.Embedding(100, comp_dim * 2)
@@ -1049,7 +1053,7 @@ class LongIE(nn.Module):
                     encoder_comp[-2, :] += self.thr_emb
                     encoder_comp[-1, :] += self.offload_emb
 
-                    #encoder_comp = self.evid_encoder(encoder_comp)
+                    encoder_comp = self.evid_encoder(encoder_comp)
 
                     relation_cand_pairs_trans, attns = self.rel_transformer(encoder_comp,
                                                                relation_cand_pairs.view(batch_size, -1, hidden_size).transpose(0, 1))
@@ -1078,8 +1082,8 @@ class LongIE(nn.Module):
 
                     #attn_sum[attn_sum < 1.] = 0.
 
-                    #attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
-                    attn_sum = attn_sum.sum(-1)
+                    attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
+                    #attn_sum = attn_sum.sum(-1)
 
                     """attn_highest = attn_sum.max()
                     attn_mean = attn_sum.mean()
