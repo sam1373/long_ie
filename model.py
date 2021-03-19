@@ -316,6 +316,8 @@ class LongIE(nn.Module):
 
         self.attn_score_proj = Linears([evid_trans_num_layers, 16, 1])
 
+        self.attn_thr = nn.Parameter(torch.rand(1).cuda())
+
         self.evid_pos_emb = nn.Embedding(512, comp_dim * 2)
         self.evid_sent_num_emb = nn.Embedding(100, comp_dim * 2)
 
@@ -1084,6 +1086,8 @@ class LongIE(nn.Module):
 
                     attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
                     #attn_sum = attn_sum.sum(-1)
+
+                    attn_sum[:, :, -2] = self.attn_thr
 
                     """attn_highest = attn_sum.max()
                     attn_mean = attn_sum.mean()
