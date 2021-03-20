@@ -1084,10 +1084,11 @@ class LongIE(nn.Module):
 
                     #attn_sum[attn_sum < 1.] = 0.
 
-                    attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
-                    #attn_sum = attn_sum.sum(-1)
+                    #attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
+                    attn_sum = attn_sum.sum(-1)
 
-                    attn_sum[:, :, -2] = self.attn_thr
+                    #use threshold
+                    #attn_sum[:, :, -2] = self.attn_thr
 
                     """attn_highest = attn_sum.max()
                     attn_mean = attn_sum.mean()

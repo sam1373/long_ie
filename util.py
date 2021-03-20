@@ -1174,14 +1174,25 @@ def summary_graph(pred_graph, true_graph, batch,
     writer.add_text(prefix + "true_relations", " ".join(str(true_relations)), global_step)
 
     rel_analysis_text = ""
+    rel_analysis_text += " ".join(tokens).replace("</s>", "\n\n") + "\n\n\n"
+    useful_info = False
     for (a, b), d in rel_pair_dict.items():
-        rel_analysis_text += a + " - " + b + "\n\n"
-        rel_analysis_text += "Correctly predicted types:\n\n"
-        for type in d['pred_types'].intersection(d['true_types']):
-            rel_analysis_text += type + "\n\n"
-            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n\n"
-            rel_analysis_text += "  Predicted evidence scores: " + str(d['pred_evid_scores'][type]) + "\n\n"
+        corr_predicted_types = d['pred_types'].intersection(d['true_types'])
+        if len(corr_predicted_types) == 0:
+            continue
+        rel_analysis_text += a + " - " + b + "\n\n\n"
+        #rel_analysis_text += "Correctly predicted types:\n\n"
+        for type in corr_predicted_types:
+            evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type]))
+            if len(evid_diff) == 0:
+                continue
+            useful_info = True
+            rel_analysis_text += " Relation type: " + type + "\n\n"
             rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n\n"
+            rel_analysis_text += "  Predicted evidence: " + str(d['pred_evid'][type]) + "\n\n"
+            rel_analysis_text += "  Predicted evidence scores: " + str(d['pred_evid_scores'][type][:-1]) + "\n\n"
+            rel_analysis_text += "\n"
+        """
         rel_analysis_text += "Incorrect types:\n\n"
         for type in d['pred_types'] - d['true_types']:
             rel_analysis_text += type + "\n\n"
@@ -1191,9 +1202,11 @@ def summary_graph(pred_graph, true_graph, batch,
         for type in d['true_types'] - d['pred_types']:
             rel_analysis_text += type + "\n\n"
             rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n\n"
+        """
         rel_analysis_text += "\n\n"
 
-    writer.add_text(prefix + "rel_analysis", rel_analysis_text, global_step)
+    if useful_info:
+        writer.add_text(prefix + "rel_analysis", rel_analysis_text, global_step)
 
 
     """predicted_relations = set(predicted_relations)

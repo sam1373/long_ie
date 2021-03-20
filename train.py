@@ -301,7 +301,7 @@ state = dict(model=model.state_dict(),
 
 losses = []
 best_dev_score = best_test_score = 0.3
-reset_value = 0.1
+reset_value = 0.05
 
 global_step = 0
 
@@ -444,7 +444,7 @@ while epoch < epoch_num:
                                                           rel_type_thr=rel_type_thr, extra=ex_val, config=config)
                     pred_dev_graphs[j].extend(pred_graphs)
 
-                if len(batch.tokens[0]) < 400 and batch_idx < 20:
+                if len(batch.tokens[0]) < 400 and batch_idx < 50:
                     summary_graph(pred_graphs[0], batch.graphs[0], batch,
                           writer, global_step + batch_idx, "dev_", vocabs, None, id=batch_idx)
 
@@ -535,11 +535,11 @@ while epoch < epoch_num:
 
         cur_dev_score = cur_dev_score['f']
 
-        if cur_dev_score < reset_value:
+        """if cur_dev_score < reset_value:
             epoch = 0
             model.apply(weight_reset)
             print("Bad initialization. Resetting...")
-            continue
+            continue"""
 
         if cur_dev_score > best_dev_score and epoch % 6 == 0:
             print('Saving res for best dev model by ' + judge_value)
