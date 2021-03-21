@@ -1180,12 +1180,14 @@ def summary_graph(pred_graph, true_graph, batch,
         corr_predicted_types = d['pred_types'].intersection(d['true_types'])
         if len(corr_predicted_types) == 0:
             continue
-        rel_analysis_text += a + " - " + b + "\n\n\n"
         #rel_analysis_text += "Correctly predicted types:\n\n"
+
         for type in corr_predicted_types:
             evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type]))
             if len(evid_diff) == 0:
                 continue
+            if not useful_info:
+                rel_analysis_text += a + " - " + b + "\n\n\n"
             useful_info = True
             rel_analysis_text += " Relation type: " + type + "\n\n"
             rel_analysis_text += "  True evidence: " + str(d['true_evid'][type]) + "\n\n"
