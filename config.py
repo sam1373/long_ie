@@ -85,6 +85,8 @@ class Config():
 
         self.use_last_attn = kwargs.pop("use_last_attn", False)
 
+        self.random_evid_skip = kwargs.pop("random_evid_skip", 0.)
+
         #self.evid_self_attn = kwargs.pop("evid_self_attn", True)
 
 

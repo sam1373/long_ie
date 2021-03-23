@@ -845,6 +845,10 @@ class LongIE(nn.Module):
             while cur_token < encoder_outputs.shape[1]:
                 end_sent = batch.tokens[0][cur_token] == "</s>"
 
+                if not end_sent and random.random() < self.config.get("random_evid_skip"):
+                    cur_token += 1
+                    continue
+
                 skip = 0
                 for (r, ent_num) in entity_span_dict[cur_token]:
                     skip = max(skip, r - cur_token)
@@ -880,7 +884,7 @@ class LongIE(nn.Module):
 
             encoder_comp = self.rel_context_project(evid_context_repr)
 
-            encoder_comp = encoder_comp + pos_emb * 0.1 + sent_emb * 0.1
+            encoder_comp = encoder_comp + pos_emb + sent_emb
 
 
 
@@ -1063,6 +1067,7 @@ class LongIE(nn.Module):
 
                     relation_cand_pairs_trans = relation_cand_pairs_trans.transpose(0, 1).view(batch_size, -1, num_rel_types + 1, hidden_size)
 
+                    #necessary?
                     relation_cand_pairs = relation_cand_pairs + relation_cand_pairs_trans
 
                     if self.config.get("use_last_attn"):
