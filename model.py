@@ -845,7 +845,7 @@ class LongIE(nn.Module):
             while cur_token < encoder_outputs.shape[1]:
                 end_sent = batch.tokens[0][cur_token] == "</s>"
 
-                if not end_sent and random.random() < self.config.get("random_evid_skip"):
+                if not end_sent and random.random() < self.config.get("random_evid_skip") and not predict:
                     cur_token += 1
                     continue
 
@@ -855,7 +855,7 @@ class LongIE(nn.Module):
                     evid_context_repr.append(entity_spans[0, ent_num])
                     pos_nums.append(cur_pos)
                     sent_nums.append(cur_sent)
-                    text_repr.append(batch.tokens[0][cur_token:r])
+                    text_repr.append(" ".join(batch.tokens[0][cur_token:r]))
                     cur_pos += 1
 
 
@@ -1082,12 +1082,15 @@ class LongIE(nn.Module):
                     attn_sum = attn_sum.\
                         reshape(batch_size, total_rel_cand, num_rel_types + 1, evid_attn_cands, -1).transpose(2, 3)[:, :, :, :-1]
 
+                    all_attn_scores = attn_sum
+
                     if not self.config.get("condense_sents"):
                         attn_sum_special = attn_sum[:, :, -2:, :]
                         attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-2, :], evid_sent_nums.unsqueeze(1), dim=2)
                         attn_sum = torch.cat((attn_sum, attn_sum_special), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.
+
 
                     #attn_sum = self.attn_score_proj(attn_sum).squeeze(-1)
                     attn_sum = attn_sum.sum(-1)
@@ -1176,7 +1179,8 @@ class LongIE(nn.Module):
         return is_start_pred, len_from_here_pred, type_pred, cluster_labels,\
                is_start_pred_ev, len_from_here_pred_ev, type_pred_ev, cluster_labels_ev, coref_embed_ev,\
                relation_any, relation_cand, relation_true_for_cand, coref_embed, relation_pred,\
-               attn_sum, evidence_true_for_cand
+               attn_sum, evidence_true_for_cand,\
+               all_attn_scores, text_repr
 
 
 
@@ -1187,7 +1191,8 @@ class LongIE(nn.Module):
         is_start_pred_ev, len_from_here_pred_ev, type_pred_ev, cluster_labels_ev, coref_embed_ev, \
         relation_any, relation_cand, relation_true_for_cand,\
         coref_embeds, relation_pred,\
-        attn_sum, evidence_true_for_cand = self.forward_nn(batch, epoch=epoch, gold_inputs=gold_inputs)
+        attn_sum, evidence_true_for_cand,\
+        all_attn_scores, text_repr = self.forward_nn(batch, epoch=epoch, gold_inputs=gold_inputs)
 
         #span_candidate_score, span_candidates_idxs, entity_type, trigger_type, relation_type, coref_embeds = self.forward_nn(batch)
 

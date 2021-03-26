@@ -411,6 +411,8 @@ def build_information_graph(batch,
                             relation_pred,
                             attn_sum,
                             evidence_true_for_cand,
+                            all_attn_scores,
+                            text_repr,
                             vocabs,
                             gold_inputs=False,
                             config=None,
@@ -528,6 +530,7 @@ def build_information_graph(batch,
         evidence = []
         evidence_class = []
         evid_scores = []
+        full_evid_scores = []
 
         if relation_pred is not None:
 
@@ -585,6 +588,8 @@ def build_information_graph(batch,
 
                         attn_cur = attn_sum[graph_idx, cur_idx].transpose(-2, -1).tolist()
 
+                        attn_scores = all_attn_scores[graph_idx, cur_idx].sum(-1).transpose(-2, -1).tolist()
+
                         if predicted_not_zero:
                             relations.append((i, j, rel_pred))
                             nonzero_final_probs.append(relation_pred[graph_idx, cur_idx])
@@ -605,6 +610,7 @@ def build_information_graph(batch,
                             evidence_class.append(cur_evid_class)
 
                             evid_scores.append(attn_cur)
+                            full_evid_scores.append(attn_scores)
 
                     if rel_cand[i, j]:
                         cur_idx += 1
@@ -617,6 +623,9 @@ def build_information_graph(batch,
         if relation_pred is not None:
             cur_graph.rel_probs = nonzero_final_probs
             cur_graph.evid_scores = evid_scores
+
+            cur_graph.text_repr = text_repr
+            cur_graph.full_evid_scores = full_evid_scores
 
         graphs.append(cur_graph)
 
@@ -701,6 +710,40 @@ import numpy as np
 from highlight_text import ax_text, fig_text
 import matplotlib.colors as mcolors
 from sklearn.manifold import TSNE
+import seaborn as sns
+
+
+def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, row_len=5):
+    #tokens.append("threshold")
+    attn_scores = attn_scores[:-2]
+
+    pad_num = row_len - len(tokens) % row_len
+
+    tokens = tokens + [" "] * pad_num
+    attn_scores = attn_scores + [0.] * pad_num
+
+    for i in range(len(tokens)):
+        if len(tokens[i]) > 15:
+            tokens[i] = tokens[i][:15] + "~"
+
+
+    tokens = np.array(tokens).reshape(-1, row_len)
+    attn_scores = np.array(attn_scores).reshape(-1, row_len)
+
+    fig, ax = plt.subplots()
+    plt.axis('off')
+    plt.title(title)
+    sns.set(font_scale=0.6)
+    ax = sns.heatmap(attn_scores, annot=tokens, fmt='')
+
+    #plt.show()
+
+    fig.canvas.draw()
+    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    img1 = img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    writer.add_image(prefix + "attn_heatmap", img1, global_step, dataformats='HWC')
+
 
 
 def summary_graph(pred_graph, true_graph, batch,
@@ -724,11 +767,11 @@ def summary_graph(pred_graph, true_graph, batch,
             pred_to_true.append(rev_pos_offsets[(s, e)])
         else:
             pred_to_true.append(-1)
-        predicted_entities.append(("|".join(tokens[s:e]), t, s, e, pred_to_true[-1]))
+        predicted_entities.append((" ".join(tokens[s:e]), t, s, e, pred_to_true[-1]))
 
     true_entities = []
     for i, (s, e, t) in enumerate(true_graph.entities):
-        true_entities.append(("|".join(tokens[s:e]), t, s, e, i))
+        true_entities.append((" ".join(tokens[s:e]), t, s, e, i))
 
     writer.add_text(prefix + "predicted_entities", " ".join(str(predicted_entities)), global_step)
     writer.add_text(prefix + "true_entities", " ".join(str(true_entities)), global_step)
@@ -1184,6 +1227,12 @@ def summary_graph(pred_graph, true_graph, batch,
         #rel_analysis_text += "Correctly predicted types:\n\n"
 
         for type in corr_predicted_types:
+
+            type_idx = vocabs["relation"][type]
+
+            draw_attn_heatmap(prefix, writer, global_step, a + " - " + b + " : " + type,
+                              pred_graph.full_evid_scores[0][type_idx], pred_graph.text_repr)
+
             evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type]))
             if len(evid_diff) == 0:
                 continue
@@ -1210,6 +1259,8 @@ def summary_graph(pred_graph, true_graph, batch,
 
     if useful_info:
         writer.add_text(prefix + "rel_analysis", rel_analysis_text, global_step)
+
+
 
 
     """predicted_relations = set(predicted_relations)
