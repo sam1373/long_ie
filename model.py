@@ -831,7 +831,7 @@ class LongIE(nn.Module):
 
             #for bs 1 only
 
-            evid_context_repr = []
+            """evid_context_repr = []
             pos_nums = []
             sent_nums = []
 
@@ -884,7 +884,7 @@ class LongIE(nn.Module):
 
             encoder_comp = self.rel_context_project(evid_context_repr)
 
-            encoder_comp = encoder_comp + pos_emb + sent_emb
+            encoder_comp = encoder_comp + pos_emb + sent_emb"""
 
 
 
@@ -1026,10 +1026,12 @@ class LongIE(nn.Module):
                     #relation_cand_pairs = self.rel_transformer(encoder_outputs.transpose(0, 1),
                     #                                           relation_cand_pairs.transpose(0, 1)).transpose(0, 1)
 
-                    #encoder_comp = self.rel_context_project(encoder_outputs)
+                    #non-special evid repr
+                    text_repr = batch.tokens[0]
+                    encoder_comp = self.rel_context_project(encoder_outputs)
 
                     if self.config.get("condense_sents"):
-                        encoder_comp = torch_scatter.scatter_max(encoder_comp, evid_sent_nums, dim=1)[0]
+                        encoder_comp = torch_scatter.scatter_max(encoder_comp, batch.sent_nums, dim=1)[0]
 
                     #-2 - threshold token
                     #-1 - offload token
@@ -1086,7 +1088,7 @@ class LongIE(nn.Module):
 
                     if not self.config.get("condense_sents"):
                         attn_sum_special = attn_sum[:, :, -2:, :]
-                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-2, :], evid_sent_nums.unsqueeze(1), dim=2)
+                        attn_sum = torch_scatter.scatter_sum(attn_sum[:, :, :-2, :], batch.sent_nums.unsqueeze(1), dim=2)
                         attn_sum = torch.cat((attn_sum, attn_sum_special), dim=2)
 
                     #attn_sum[attn_sum < 1.] = 0.

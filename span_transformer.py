@@ -79,7 +79,7 @@ class ContextTransformer(nn.Module):
 
             x = x + self.lin[i](x)
 
-            x = self.norm2[i](x)
+            #x = self.norm2[i](x)
 
         return x, attns
 

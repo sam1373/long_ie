@@ -588,7 +588,8 @@ def build_information_graph(batch,
 
                         attn_cur = attn_sum[graph_idx, cur_idx].transpose(-2, -1).tolist()
 
-                        attn_scores = all_attn_scores[graph_idx, cur_idx].sum(-1).transpose(-2, -1).tolist()
+                        #a, b, c -> c, b, a
+                        attn_scores = all_attn_scores[graph_idx, cur_idx].transpose(-1, -3).tolist()
 
                         if predicted_not_zero:
                             relations.append((i, j, rel_pred))
@@ -734,7 +735,7 @@ def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, r
     plt.axis('off')
     plt.title(title)
     sns.set(font_scale=0.6)
-    ax = sns.heatmap(attn_scores, annot=tokens, fmt='')
+    ax = sns.heatmap(attn_scores, annot=tokens, fmt='', cmap="YlGnBu")
 
     #plt.show()
 
@@ -1230,8 +1231,9 @@ def summary_graph(pred_graph, true_graph, batch,
 
             type_idx = vocabs["relation"][type]
 
-            draw_attn_heatmap(prefix, writer, global_step, a + " - " + b + " : " + type,
-                              pred_graph.full_evid_scores[0][type_idx], pred_graph.text_repr)
+            for l in range(len(pred_graph.full_evid_scores[0])):
+                draw_attn_heatmap(prefix, writer, global_step, a + " - " + b + " : " + type + " (layer " + str(l) + ")",
+                              pred_graph.full_evid_scores[0][l][type_idx], pred_graph.text_repr)
 
             evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type]))
             if len(evid_diff) == 0:
