@@ -712,6 +712,7 @@ from highlight_text import ax_text, fig_text
 import matplotlib.colors as mcolors
 from sklearn.manifold import TSNE
 import seaborn as sns
+from matplotlib.colors import LogNorm
 
 
 def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, row_len=5):
@@ -730,12 +731,15 @@ def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, r
 
     tokens = np.array(tokens).reshape(-1, row_len)
     attn_scores = np.array(attn_scores).reshape(-1, row_len)
+    min_attn_scale = 1e-6
+    attn_scores[attn_scores < min_attn_scale] = min_attn_scale
 
     fig, ax = plt.subplots()
     plt.axis('off')
     plt.title(title)
     sns.set(font_scale=0.6)
-    ax = sns.heatmap(attn_scores, annot=tokens, fmt='', cmap="YlGnBu")
+    ax = sns.heatmap(attn_scores, annot=tokens, fmt='', cmap="YlGnBu",
+                     norm=LogNorm(vmin=min_attn_scale, vmax=attn_scores.max()))
 
     #plt.show()
 
@@ -1232,7 +1236,7 @@ def summary_graph(pred_graph, true_graph, batch,
             type_idx = vocabs["relation"][type]
 
             for l in range(len(pred_graph.full_evid_scores[0])):
-                draw_attn_heatmap(prefix, writer, global_step, a + " - " + b + " : " + type + " (layer " + str(l) + ")",
+                draw_attn_heatmap(prefix, writer, global_step, a[:10] + "-" + b[:10] + ":" + type[:10] + "(l" + str(l) + ")" + str(d['pred_evid'][type]) + str(d['true_evid'][type]),
                               pred_graph.full_evid_scores[0][l][type_idx], pred_graph.text_repr)
 
             evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type]))
