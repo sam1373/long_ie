@@ -673,8 +673,9 @@ class IEDataset(Dataset):
         # print(tokens)
         pieces = []
         for i, word in enumerate(tokens):
-            if word == '\n':
-                pieces.append(tokenizer.tokenize("a\n")[-1])
+            if word == '\n' or word == '</s>':
+                pieces.append([tokenizer.tokenize(".")[0]])
+                #pieces.append(tokenizer.tokenize("a\n")[-1])
                 continue
             if i > 0 and not word in string.punctuation and not tokens[i - 1] in ['-', '\'', '(']:
                 word = " " + word

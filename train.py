@@ -10,6 +10,7 @@ from transformers import (LongformerModel, LongformerTokenizer, RobertaModel,
                           AutoTokenizer,
                           AutoModel, BertModel,
                           AdamW,
+                          AlbertModel, AlbertTokenizer,
                           ElectraTokenizer, ElectraForMaskedLM,
                           XLNetModel, XLNetTokenizer,
                           get_linear_schedule_with_warmup)
@@ -111,8 +112,9 @@ if use_extra_word_embed:
 # datasets
 model_name = config.bert_model_name
 
-tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
+#tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
 
+tokenizer= AlbertTokenizer.from_pretrained(config.bert_model_name)
 
 #tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
 
@@ -122,8 +124,15 @@ tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
 
 #tokenizer = XLNetTokenizer.from_pretrained("xlnet-base-cased")
 
-wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-generator')
-wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True).cuda()
+
+cur_swap_prob = 0.
+max_swap_prob = 0.
+
+if max_swap_prob == 0:
+    wordswap_tokenizer = wordswap_model = None
+else:
+    wordswap_tokenizer = ElectraTokenizer.from_pretrained('google/electra-small-generator')
+    wordswap_model = ElectraForMaskedLM.from_pretrained('google/electra-small-generator', return_dict=True).cuda()
 
 #ace+
 sent_lens = [0, 300, 500, 1000, 3000]
@@ -151,7 +160,6 @@ else:
 if config.get("use_sent_set"):
     test_sent_set = IEDataset(config.file_dir + config.sent_set_file, config, word_vocab)
 
-cur_swap_prob = 0.
 
 print('Processing data')
 train_set.process(tokenizer, cur_swap_prob)
@@ -215,7 +223,8 @@ else:
                                         output_hidden_states=True,
                                         fast=True)"""
 
-bert = RobertaModel.from_pretrained(config.bert_model_name)
+bert = AlbertModel.from_pretrained(config.bert_model_name)
+#bert = RobertaModel.from_pretrained(config.bert_model_name)
 #bert = LongformerModel.from_pretrained(config.bert_model_name)
 
 #bert = BertModel.from_pretrained("SpanBERT/spanbert-base-cased")
@@ -337,7 +346,7 @@ while epoch < epoch_num:
     print('******* Epoch {} *******'.format(epoch))
 
     if epoch > 0 and not args.debug:
-        if epoch % 5 == 0 and cur_swap_prob < 0.:
+        if epoch % 5 == 0 and cur_swap_prob < max_swap_prob:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
 

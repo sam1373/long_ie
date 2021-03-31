@@ -739,7 +739,7 @@ def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, r
     plt.title(title)
     sns.set(font_scale=0.6)
     ax = sns.heatmap(attn_scores, annot=tokens, fmt='', cmap="YlGnBu",
-                     norm=LogNorm(vmin=min_attn_scale, vmax=attn_scores.max()))
+                     norm=LogNorm(vmin=attn_scores.min(), vmax=attn_scores.max()))
 
     #plt.show()
 
