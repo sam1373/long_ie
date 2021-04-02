@@ -695,6 +695,7 @@ class IEDataset(Dataset):
         if len(pieces) < min_sent_len:
             return False
         if len(pieces) > max_sent_len:
+            print(len(pieces), "is greater than", max_sent_len)
             if not self.config.get("truncate_long_docs"):
                 return False
             else:
@@ -707,6 +708,7 @@ class IEDataset(Dataset):
                         token_lens = token_lens[:j]
                         pieces = pieces[:cur_cum_len + 1]
                         break
+                print("truncated to", cur_cum_len + 1)
 
         sentence.tokens = tokens
         sentence.pieces = pieces
