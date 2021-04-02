@@ -112,9 +112,9 @@ if use_extra_word_embed:
 # datasets
 model_name = config.bert_model_name
 
-#tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
+tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
 
-tokenizer= AlbertTokenizer.from_pretrained(config.bert_model_name)
+#tokenizer = AlbertTokenizer.from_pretrained(config.bert_model_name)
 
 #tokenizer = BertTokenizer.from_pretrained("allenai/scibert_scivocab_cased")
 
@@ -223,8 +223,8 @@ else:
                                         output_hidden_states=True,
                                         fast=True)"""
 
-bert = AlbertModel.from_pretrained(config.bert_model_name)
-#bert = RobertaModel.from_pretrained(config.bert_model_name)
+#bert = AlbertModel.from_pretrained(config.bert_model_name)
+bert = RobertaModel.from_pretrained(config.bert_model_name)
 #bert = LongformerModel.from_pretrained(config.bert_model_name)
 
 #bert = BertModel.from_pretrained("SpanBERT/spanbert-base-cased")
@@ -443,8 +443,8 @@ while epoch < epoch_num:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
 
-            if args.debug and batch_idx == 200:
-                break
+            #if args.debug and batch_idx == 200:
+            #    break
 
             if not config.get("only_test_g_i"):
                 result = model.predict(batch, epoch=epoch)

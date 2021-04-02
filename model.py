@@ -354,7 +354,7 @@ class LongIE(nn.Module):
         if self.config.get("relation_type_level") == "multitype":
             self.relation_loss = nn.BCELoss()
         else:
-            self.relation_loss = nn.CrossEntropyLoss(weight=rel_weights)
+            self.relation_loss = nn.CrossEntropyLoss()
 
         self.role_loss = nn.CrossEntropyLoss(weight=role_weights)
 
@@ -563,6 +563,8 @@ class LongIE(nn.Module):
         ent_sent_nums = []
 
         if gold_inputs or (not predict):
+
+
 
             max_entities = batch.len_from_here[batch.is_start == 1].sum()
 

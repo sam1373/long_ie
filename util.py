@@ -603,6 +603,9 @@ def build_information_graph(batch,
                                 k_s = relation_itos[k]
                                 cur_evid_class[k_s] = []
 
+                                if config.get("classify_evidence") == False:
+                                    attn_cur[k][-2] = 0.05
+
                                 for l in range(len(attn_cur[0]) - 2):
                                     if attn_cur[k][l] > attn_cur[k][-2]:
                                         cur_evid.append(l)
@@ -718,6 +721,7 @@ from matplotlib.colors import LogNorm
 def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, row_len=5):
     #tokens.append("threshold")
     attn_scores = attn_scores[:-2]
+    min_attn_scale = max(min(attn_scores), 1e-6)
 
     pad_num = row_len - len(tokens) % row_len
 
@@ -731,7 +735,7 @@ def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, r
 
     tokens = np.array(tokens).reshape(-1, row_len)
     attn_scores = np.array(attn_scores).reshape(-1, row_len)
-    min_attn_scale = 1e-6
+    #min_attn_scale = 1e-6
     attn_scores[attn_scores < min_attn_scale] = min_attn_scale
 
     fig, ax = plt.subplots()
@@ -1239,7 +1243,7 @@ def summary_graph(pred_graph, true_graph, batch,
                 draw_attn_heatmap(prefix, writer, global_step, a[:10] + "-" + b[:10] + ":" + type[:10] + "(l" + str(l) + ")" + str(d['pred_evid'][type]) + str(d['true_evid'][type]),
                               pred_graph.full_evid_scores[0][l][type_idx], pred_graph.text_repr)
 
-            evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type]))
+            evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type])) + set(d['pred_evid'][type]).difference(set(d['true_evid'][type]))
             if len(evid_diff) == 0:
                 continue
             if not useful_info:

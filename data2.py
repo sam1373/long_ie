@@ -22,6 +22,8 @@ import copy
 
 import string
 
+from collections import defaultdict
+
 logger = logging.getLogger(__name__)
 
 
@@ -288,7 +290,7 @@ class Relation:
                         arg1=RelationArgument.from_dict(dict_obj['arguments'][0], **kwargs),
                         arg2=RelationArgument.from_dict(dict_obj['arguments'][1], **kwargs),
                         evidence=dict_obj.get("evidence", []),
-                        evidence_class=dict_obj.get("evidence_class", dict())
+                        evidence_class=dict_obj.get("evidence_class", defaultdict(lambda : []))
                         # is_symmetric=dict_obj['relation_type'] in symmetric_relations
                         )
 
@@ -677,7 +679,7 @@ class IEDataset(Dataset):
                 pieces.append([tokenizer.tokenize(".")[0]])
                 #pieces.append(tokenizer.tokenize("a\n")[-1])
                 continue
-            if i > 0 and not word in string.punctuation and not tokens[i - 1] in ['-', '\'', '(']:
+            if i > 0 and not word in string.punctuation and not tokens[i - 1] in ['-', '\'', '(', '.', ',']:
                 word = " " + word
             wp = tokenizer.tokenize(word)
             pieces.append(wp)
