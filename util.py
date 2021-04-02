@@ -1243,7 +1243,7 @@ def summary_graph(pred_graph, true_graph, batch,
                 draw_attn_heatmap(prefix, writer, global_step, a[:10] + "-" + b[:10] + ":" + type[:10] + "(l" + str(l) + ")" + str(d['pred_evid'][type]) + str(d['true_evid'][type]),
                               pred_graph.full_evid_scores[0][l][type_idx], pred_graph.text_repr)
 
-            evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type])) + set(d['pred_evid'][type]).difference(set(d['true_evid'][type]))
+            evid_diff = set(d['true_evid'][type]).difference(set(d['pred_evid'][type])).union(set(d['pred_evid'][type]).difference(set(d['true_evid'][type])))
             if len(evid_diff) == 0:
                 continue
             if not useful_info:
