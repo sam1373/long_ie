@@ -665,11 +665,11 @@ class IEDataset(Dataset):
 
                     tokens_orig = tokens[st:end]
 
-                    # print(tokens_orig)
+                    print(tokens_orig)
 
                     tokens_aug = augment(tokens_orig, swap_prob, self.ws_tokenizer, self.ws_model)
 
-                    # print(tokens_aug)
+                    print(tokens_aug)
 
                     tokens[st:end] = tokens_aug
         # print(tokens)

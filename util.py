@@ -1361,7 +1361,7 @@ def augment(tokens, mask_prob, ws_tokenizer, ws_model):
 
     for i in range(len(tokens)):
         r = random()
-        if r < mask_prob:
+        if r < mask_prob and tokens[i] != "</s>":
             tokens_masked.append("[MASK]")
             masked.add(i + 1)
         else:

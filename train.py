@@ -125,8 +125,8 @@ tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
 #tokenizer = XLNetTokenizer.from_pretrained("xlnet-base-cased")
 
 
-cur_swap_prob = 0.
-max_swap_prob = 0.
+cur_swap_prob = 0.2
+max_swap_prob = 0.2
 
 if max_swap_prob == 0:
     wordswap_tokenizer = wordswap_model = None
@@ -147,7 +147,7 @@ sent_lens = [0, 300, 500, 1000, 3000]
         test_sent_set = IEDataset(config.file_dir + config.sent_set_file, config, word_vocab)
 else:"""
 train_set = IEDataset(config.file_dir + config.train_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
-dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab)
+dev_set = IEDataset(config.file_dir + config.dev_file, config, word_vocab, wordswap_tokenizer, wordswap_model)
 if config.get("split_by_doc_lens"):
     test_sets = []
     for i in range(1, len(sent_lens)):
@@ -163,7 +163,7 @@ if config.get("use_sent_set"):
 
 print('Processing data')
 train_set.process(tokenizer, cur_swap_prob)
-dev_set.process(tokenizer)
+dev_set.process(tokenizer, cur_swap_prob)
 for test_set in test_sets:
     test_set.process(tokenizer)
 if config.get("use_sent_set"):
@@ -345,7 +345,7 @@ epoch = 0
 while epoch < epoch_num:
     print('******* Epoch {} *******'.format(epoch))
 
-    if epoch > 0 and not args.debug:
+    if epoch > 0:
         if epoch % 5 == 0 and cur_swap_prob < max_swap_prob:
             cur_swap_prob += 0.05
             print("swap prob increased to", cur_swap_prob)
@@ -353,6 +353,8 @@ while epoch < epoch_num:
         if cur_swap_prob > 0:
             print("reprocessing train dataset")
             train_set.process(tokenizer, cur_swap_prob)
+            dev_set.process(tokenizer, cur_swap_prob)
+            #??
 
     if skip_train == False:
         dataloader = DataLoader(train_set,
@@ -443,8 +445,8 @@ while epoch < epoch_num:
 
         for batch_idx, batch in enumerate(tqdm(dev_loader, ncols=75)):
 
-            #if args.debug and batch_idx == 200:
-            #    break
+            if args.debug and batch_idx == 200:
+                break
 
             if not config.get("only_test_g_i"):
                 result = model.predict(batch, epoch=epoch)

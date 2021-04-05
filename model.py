@@ -1312,7 +1312,7 @@ class LongIE(nn.Module):
             attn_sum = attn_sum[:, :, :-1]
 
             #loss = -entropy
-            evid_loss = torch.sum(attn_sum * torch.log(attn_sum + 1e-10), dim=-1)
+            evid_loss = -torch.sum(attn_sum * torch.log(attn_sum + 1e-10), dim=-1)
 
             loss.append(evid_loss)
             loss_names.append("evidence")
