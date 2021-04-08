@@ -125,8 +125,8 @@ tokenizer = RobertaTokenizer.from_pretrained(config.bert_model_name)
 #tokenizer = XLNetTokenizer.from_pretrained("xlnet-base-cased")
 
 
-cur_swap_prob = 0.2
-max_swap_prob = 0.2
+cur_swap_prob = 0.
+max_swap_prob = 0.
 
 if max_swap_prob == 0:
     wordswap_tokenizer = wordswap_model = None
@@ -339,6 +339,8 @@ for i in extra_values_0:
 extra_value_num = len(extra_values)
 
 rel_type_thr = [0.1 for i in range(len(vocabs['relation']))]
+evid_type_thr = [0.1 for i in range(len(vocabs['relation']))]
+
 
 epoch = 0
 
@@ -452,7 +454,7 @@ while epoch < epoch_num:
                 result = model.predict(batch, epoch=epoch)
                 for j, ex_val in enumerate(extra_values):
                     pred_graphs = build_information_graph(batch, *result, vocabs,
-                                                          rel_type_thr=rel_type_thr, extra=ex_val, config=config)
+                                                          rel_type_thr=rel_type_thr, evid_type_thr=evid_type_thr, extra=ex_val, config=config)
                     pred_dev_graphs[j].extend(pred_graphs)
 
                 if len(batch.tokens[0]) < 400 and batch_idx < 50:
@@ -463,7 +465,7 @@ while epoch < epoch_num:
 
             for j, ex_val in enumerate(extra_values):
                 pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
-                                                             gold_inputs=True, rel_type_thr=rel_type_thr,
+                                                             gold_inputs=True, rel_type_thr=rel_type_thr, evid_type_thr=evid_type_thr,
                                                                  extra=ex_val, config=config)
 
                 pred_dev_gold_input_graphs[j].extend(pred_gold_input_graphs)
@@ -487,7 +489,7 @@ while epoch < epoch_num:
         best_dev_g_i_scores = None
         best_rel_class_stats = None
 
-        best_ex_val = -1
+        """best_ex_val = -1
         best_ex_val_res = 0
 
         for j, ex_val in enumerate(extra_values):
@@ -510,34 +512,49 @@ while epoch < epoch_num:
                 best_ex_val_res = cur_judge_value
                 best_dev_scores = dev_scores
                 best_dev_g_i_scores = dev_g_i_scores
-                best_rel_class_stats = rel_class_stats
+                best_rel_class_stats = rel_class_stats"""
+
 
         #writer.add_scalar("dev_entity_num", max_entity_pred, global_step)
-        for k in range(len(best_ex_val)):
-            writer.add_scalar('best_ex_val_'+str(k), best_ex_val[k], global_step)
-        print('Best extra value:', best_ex_val)
+        #for k in range(len(best_ex_val)):
+        #    writer.add_scalar('best_ex_val_'+str(k), best_ex_val[k], global_step)
+        #print('Best extra value:', best_ex_val)
+
+
 
         if not config.get("only_test_g_i"):
-            for k, v in best_dev_scores.items():
+            dev_scores = score_graphs(gold_dev_graphs, pred_dev_graphs[0], not symmetric_rel, multitype=multitype)
+            for k, v in dev_scores.items():
                 writer.add_scalar('dev_' + k + '_f', v['f'], global_step)
 
-        for k, v in best_dev_g_i_scores.items():
+        dev_g_i_scores, rel_class_stats, evid_class_stats = score_graphs(gold_dev_graphs, pred_dev_gold_input_graphs[0],
+                                                       not symmetric_rel, return_class_scores=True, multitype=multitype)
+
+        for k, v in dev_g_i_scores.items():
             writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
-        """print("Relation Class Metrics:")
-        for (rel_type, metrics) in rel_class_stats.items():
-            print(rel_type, #"~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
-                  "~ prec:", round(metrics['prec'], 2),
-                  "rec:", round(metrics['rec'], 2),
-                  "f:", round(metrics['f'], 2))"""
-
+        print("Class Metrics:")
+        for type in rel_class_stats.keys():
+            rel_metrics = rel_class_stats[type]
+            evid_metrics = evid_class_stats[type]
+            print(type, #"~ thr:", round(rel_type_thr[vocabs["relation"][rel_type]], 2),
+                  "\nRel ~ prec:", round(rel_metrics['prec'], 2),
+                  "rec:", round(rel_metrics['rec'], 2),
+                  "f:", round(rel_metrics['f'], 2),
+                  "\nEvid ~ prec:", round(evid_metrics['prec'], 2),
+                  "rec:", round(evid_metrics['rec'], 2),
+                  "f:", round(evid_metrics['f'], 2),
+                  "thr:", round(evid_type_thr[vocabs["relation"][type]], 2),
+                  )
 
         adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
+        adjust_thresholds(evid_type_thr, evid_class_stats, vocabs["relation"], epoch)
+
 
         if config.get("only_test_g_i"):
-            cur_dev_score = best_dev_g_i_scores[judge_value]
+            cur_dev_score = dev_g_i_scores[judge_value]
         else:
-            cur_dev_score = best_dev_scores[judge_value]
+            cur_dev_score = dev_scores[judge_value]
 
         thr_delta = get_adjustment(cur_dev_score['prec'], cur_dev_score['rec'])
 
@@ -572,15 +589,15 @@ while epoch < epoch_num:
 
                 if not config.get("only_test_g_i"):
                     result = model.predict(batch, epoch=epoch)
-                    pred_graphs = build_information_graph(batch, *result, vocabs, rel_type_thr=rel_type_thr,
-                                                          extra=best_ex_val, config=config)
+                    pred_graphs = build_information_graph(batch, *result, vocabs, rel_type_thr=rel_type_thr, evid_type_thr=evid_type_thr,
+                                                          extra=extra_values[0], config=config)
                     # TODO: change
 
                 result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
                 pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
-                                                                 gold_inputs=True, rel_type_thr=rel_type_thr,
-                                                                 extra=best_ex_val, config=config)
+                                                                 gold_inputs=True, rel_type_thr=rel_type_thr, evid_type_thr=evid_type_thr,
+                                                                 extra=extra_values[0], config=config)
 
                 pred_train_gold_input_graphs.extend(pred_gold_input_graphs)
 
@@ -624,13 +641,13 @@ while epoch < epoch_num:
 
                 if not config.get("only_test_g_i"):
                     result = model.predict(batch)
-                    pred_graphs = build_information_graph(batch, *result, vocabs, rel_type_thr=rel_type_thr,
+                    pred_graphs = build_information_graph(batch, *result, vocabs, rel_type_thr=rel_type_thr, evid_type_thr=evid_type_thr,
                                                           extra=best_ex_val, config=config)
 
                 result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
                 pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
-                                                                 gold_inputs=True, rel_type_thr=rel_type_thr,
+                                                                 gold_inputs=True, rel_type_thr=rel_type_thr, evid_type_thr=evid_type_thr,
                                                                  extra=best_ex_val, config=config)
 
                 pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
@@ -687,7 +704,7 @@ while epoch < epoch_num:
             result_gold_inputs = model.predict(batch, epoch=epoch, gold_inputs=True)
 
             pred_gold_input_graphs = build_information_graph(batch, *result_gold_inputs, vocabs,
-                                                             gold_inputs=True, rel_type_thr=rel_type_thr, config=config)
+                                                             gold_inputs=True, rel_type_thr=rel_type_thr, evid_type_thr=evid_type_thr, config=config)
 
             pred_test_gold_input_graphs.extend(pred_gold_input_graphs)
 

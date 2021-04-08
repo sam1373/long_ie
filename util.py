@@ -417,7 +417,8 @@ def build_information_graph(batch,
                             gold_inputs=False,
                             config=None,
                             extra=0,
-                            rel_type_thr=None):
+                            rel_type_thr=None,
+                            evid_type_thr=None):
     entity_itos = {i: s for s, i in vocabs['entity'].items()}
     trigger_itos = {i: s for s, i in vocabs['event'].items()}
     relation_itos = {i: s for s, i in vocabs['relation'].items()}
@@ -539,6 +540,7 @@ def build_information_graph(batch,
             else:
                 rel_type_thr = torch.Tensor(rel_type_thr).cuda()
 
+
             cluster_num = cur_clusters.max() + 1
 
             rel_cand = relation_cand[graph_idx].view(cluster_num, cluster_num)
@@ -605,6 +607,8 @@ def build_information_graph(batch,
 
                                 if config.get("classify_evidence") == False:
                                     attn_cur[k][-2] = 0.05
+
+                                attn_cur[k][-2] = evid_type_thr[k]
 
                                 for l in range(len(attn_cur[0]) - 2):
                                     if attn_cur[k][l] > attn_cur[k][-2]:

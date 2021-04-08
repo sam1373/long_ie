@@ -140,6 +140,8 @@ def score_graphs(gold_graphs, pred_graphs,
     gold_evi = pred_evi = match_evi = 0
 
     rel_class_stats = defaultdict(lambda : defaultdict(lambda : 0))
+    evid_class_stats = defaultdict(lambda : defaultdict(lambda : 0))
+
 
     for gold_graph, pred_graph in zip(gold_graphs, pred_graphs):
         # Entity
@@ -229,8 +231,10 @@ def score_graphs(gold_graphs, pred_graphs,
         # cur_matched = 0
 
         for g in gold_evidence_class:
-            for v in g.values():
+            for type, v in g.items():
                 gold_evi += len(v)
+                evid_class_stats[type]['g'] += len(v)
+
 
         if multitype:
             for _, _, rel_types in gold_relations:
@@ -243,6 +247,7 @@ def score_graphs(gold_graphs, pred_graphs,
         for p_id, (arg1, arg2, rel_type) in enumerate(pred_relations):
             for type in rel_type:
                 pred_evi += len(pred_evidence_class[p_id][type])
+                evid_class_stats[type]['p'] += len(pred_evidence_class[p_id][type])
             # arg1_start, arg1_end, _ = pred_entities[arg1]
             # arg2_start, arg2_end, _ = pred_entities[arg2]
             arg1 = pred_clusters_aligned[arg1]
@@ -278,6 +283,8 @@ def score_graphs(gold_graphs, pred_graphs,
                                 _, _, e_m = score_lists(pred_evidence_class[p_id][type], gold_evidence_class[g_id][type])
 
                                 match_evi += e_m
+
+                                evid_class_stats[type]['m'] += e_m
 
 
                     break
@@ -386,6 +393,10 @@ def score_graphs(gold_graphs, pred_graphs,
             rel_class_stats[type]['prec'], rel_class_stats[type]['rec'], rel_class_stats[type]['f'] = compute_f1(
                 rel_class_stats[type]['p'], rel_class_stats[type]['g'], rel_class_stats[type]['m']
             )
+        for type in evid_class_stats.keys():
+            evid_class_stats[type]['prec'], evid_class_stats[type]['rec'], evid_class_stats[type]['f'] = compute_f1(
+                evid_class_stats[type]['p'], evid_class_stats[type]['g'], evid_class_stats[type]['m']
+            )
 
     entity_prec, entity_rec, entity_f = compute_f1(
         pred_ent_num, gold_ent_num, ent_match_num)
@@ -482,7 +493,7 @@ def score_graphs(gold_graphs, pred_graphs,
         'trigger_cluster_matched': {'prec': t_matched_p, 'rec': t_matched_r, 'f': t_matched_f}
     }
     if return_class_scores:
-        return scores, rel_class_stats
+        return scores, rel_class_stats, evid_class_stats
     return scores
 
 

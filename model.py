@@ -1289,17 +1289,19 @@ class LongIE(nn.Module):
             th_label = torch.zeros_like(labels).cuda()
             th_label[:, -1] = 1.
 
-            pos_and_th = attn_sum - (1 - labels - th_label) * 1e30
-            loss1 = -(F.log_softmax(pos_and_th, dim=-1) * labels).sum(-1)
+            #pos_and_th = attn_sum - (1 - labels - th_label) * 1e30
+            #loss1 = -(F.log_softmax(pos_and_th, dim=-1) * labels).sum(-1)
 
             # Rank TH to negative classes
-            neg_and_th = attn_sum - labels * 1e30
-            loss2 = -(F.log_softmax(neg_and_th, dim=-1) * th_label).sum(-1)
+            #neg_and_th = attn_sum - labels * 1e30
+            #loss2 = -(F.log_softmax(neg_and_th, dim=-1) * th_label).sum(-1)
 
 
-            evid_loss = loss1.mean() + loss2.mean()
+            #evid_loss = loss1.mean() + loss2.mean()
 
             #print(-attn_sum.mean(), evid_loss)
+
+            evid_loss = -(F.log_softmax(attn_sum, dim=-1) * labels).sum(-1).mean()
 
             loss.append(evid_loss)
             loss_names.append("evidence")
