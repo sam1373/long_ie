@@ -520,6 +520,7 @@ while epoch < epoch_num:
         #    writer.add_scalar('best_ex_val_'+str(k), best_ex_val[k], global_step)
         #print('Best extra value:', best_ex_val)
 
+        best_ex_val = extra_values[0]
 
 
         if not config.get("only_test_g_i"):
