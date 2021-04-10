@@ -89,6 +89,9 @@ class Config():
 
         #self.evid_self_attn = kwargs.pop("evid_self_attn", True)
 
+        self.encoder_window_size = kwargs.pop("encoder_window_size", 512)
+        self.encoder_window_step = kwargs.pop("encoder_window_step", 256)
+
 
     def get(self, attr, default=None):
         return getattr(self, attr, default)
