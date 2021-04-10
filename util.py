@@ -1532,7 +1532,7 @@ def get_rev_dict(rel_info_path):
 
     return rev_dict
 
-def get_adjustment(prec, rec):
+def get_adjustment(thr, prec, rec):
 
     diff = abs(prec - rec)
 
@@ -1553,6 +1553,15 @@ def get_adjustment(prec, rec):
     if prec < 0.01 and rec < 0.01:
         thr_delta = 0.1
 
+    if thr > 0.01 and thr_delta < 0:
+        thr_delta = max(thr_delta, 0.01 - thr)
+
+    if thr <= 0.01 and thr_delta < 0:
+        thr_delta = thr * 0.9
+
+    if thr < 0.01 and thr_delta > 0:
+        thr_delta = thr * 9
+
     return thr_delta
 
 def adjust_thresholds(thr, stats, vocabs, ep=0):
@@ -1562,12 +1571,12 @@ def adjust_thresholds(thr, stats, vocabs, ep=0):
         idx = vocabs[type]
         prec, rec = metrics["prec"], metrics["rec"]
 
-        thr_delta = get_adjustment(prec, rec)
+        thr_delta = get_adjustment(thr, prec, rec)
 
         thr[idx] += thr_delta
 
-        thr[idx] = max(thr[idx], 0.01)
-        thr[idx] = min(thr[idx], 0.99)
+        thr[idx] = max(thr[idx], 1e-10)
+        thr[idx] = min(thr[idx], 1-1e-10)
 
 def weight_reset(m):
     reset_parameters = getattr(m, "reset_parameters", None)
