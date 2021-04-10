@@ -558,8 +558,8 @@ while epoch < epoch_num:
 
         #thr_delta = get_adjustment(extra_values[0][0], cur_dev_score['prec'], cur_dev_score['rec'])
 
-        extra_values[0][0] += thr_delta
-        extra_values[0][0] = max(extra_values[0][0], 0.05)
+        #extra_values[0][0] += thr_delta
+        #extra_values[0][0] = max(extra_values[0][0], 0.05)
 
         cur_dev_score = cur_dev_score['f']
 
