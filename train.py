@@ -545,7 +545,7 @@ while epoch < epoch_num:
                   "\nEvid ~ prec:", round(evid_metrics['prec'], 2),
                   "rec:", round(evid_metrics['rec'], 2),
                   "f:", round(evid_metrics['f'], 2),
-                  "thr:", round(evid_type_thr[vocabs["relation"][type]], 2),
+                  "thr:", round(evid_type_thr[vocabs["relation"][type]], 5),
                   )
 
         #adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
