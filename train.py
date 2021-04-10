@@ -547,8 +547,8 @@ while epoch < epoch_num:
                   "thr:", round(evid_type_thr[vocabs["relation"][type]], 2),
                   )
 
-        adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
-        adjust_thresholds(evid_type_thr, evid_class_stats, vocabs["relation"], epoch)
+        #adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
+        #adjust_thresholds(evid_type_thr, evid_class_stats, vocabs["relation"], epoch)
 
 
         if config.get("only_test_g_i"):
@@ -556,7 +556,7 @@ while epoch < epoch_num:
         else:
             cur_dev_score = dev_scores[judge_value]
 
-        thr_delta = get_adjustment(extra_values[0][0], cur_dev_score['prec'], cur_dev_score['rec'])
+        #thr_delta = get_adjustment(extra_values[0][0], cur_dev_score['prec'], cur_dev_score['rec'])
 
         extra_values[0][0] += thr_delta
         extra_values[0][0] = max(extra_values[0][0], 0.05)

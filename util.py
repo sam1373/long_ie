@@ -1571,7 +1571,7 @@ def adjust_thresholds(thr, stats, vocabs, ep=0):
         idx = vocabs[type]
         prec, rec = metrics["prec"], metrics["rec"]
 
-        thr_delta = get_adjustment(thr, prec, rec)
+        thr_delta = get_adjustment(thr[idx], prec, rec)
 
         thr[idx] += thr_delta
 
