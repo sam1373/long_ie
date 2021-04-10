@@ -608,7 +608,7 @@ def build_information_graph(batch,
                                 if config.get("classify_evidence") == False:
                                     attn_cur[k][-2] = 0.05
 
-                                attn_cur[k][-2] = evid_type_thr[k]
+                                #attn_cur[k][-2] = evid_type_thr[k]
 
                                 for l in range(len(attn_cur[0]) - 2):
                                     if attn_cur[k][l] > attn_cur[k][-2]:
