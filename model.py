@@ -959,9 +959,9 @@ class LongIE(nn.Module):
 
                 total_rel_cand = relation_cand.sum()
 
-                if total_rel_cand > 500:
+                if total_rel_cand > 1000:
                     if predict:
-                        relation_cand[:, 500:] = 0.
+                        relation_cand[:, 1000:] = 0.
                         total_rel_cand = relation_cand.sum()
                     if not predict:
                         relation_cand = (batch.relation_nonzero.view(batch_size, -1))
@@ -991,7 +991,9 @@ class LongIE(nn.Module):
                 # print(relation_cand)
                 # print(relation_cand.shape)
 
-                if not (predict and total_rel_cand > 500):
+                all_attn_scores = None
+
+                if not (predict and total_rel_cand > 1000):
                     relation_cand_pairs = torch.zeros(batch_size, total_rel_cand, entity_pairs_proj_2.shape[-1]).cuda()
                     if not predict:
                         relation_true_for_cand = torch.zeros((batch_size, total_rel_cand) +
@@ -1110,6 +1112,8 @@ class LongIE(nn.Module):
                     relation_pred = self.relation_clf(relation_cand_pairs)
 
                     relation_pred = relation_pred.view(batch_size, -1, num_rel_types + 1)
+                else:
+                    print(relation_cand.shape, total_rel_cand)
 
             if self.config.get("classify_triggers") and trigger_spans is not None:
 
