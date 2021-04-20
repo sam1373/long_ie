@@ -138,9 +138,12 @@ def score_graphs(gold_graphs, pred_graphs,
     relation_r = relation_p = 0
 
     gold_evi = pred_evi = match_evi = 0
+    gold_evi_for_pred_rel = pred_evi_for_pred_rel = 0
 
     rel_class_stats = defaultdict(lambda : defaultdict(lambda : 0))
     evid_class_stats = defaultdict(lambda : defaultdict(lambda : 0))
+
+    evid_pred_sent_num = defaultdict(lambda : 0)
 
 
     for gold_graph, pred_graph in zip(gold_graphs, pred_graphs):
@@ -248,6 +251,13 @@ def score_graphs(gold_graphs, pred_graphs,
             for type in rel_type:
                 pred_evi += len(pred_evidence_class[p_id][type])
                 evid_class_stats[type]['p'] += len(pred_evidence_class[p_id][type])
+
+                len_trunc = len(pred_evidence_class[p_id][type])
+                if len_trunc > 3:
+                    len_trunc = 4
+
+                evid_pred_sent_num[len_trunc] += 1
+
             # arg1_start, arg1_end, _ = pred_entities[arg1]
             # arg2_start, arg2_end, _ = pred_entities[arg2]
             arg1 = pred_clusters_aligned[arg1]
@@ -279,6 +289,10 @@ def score_graphs(gold_graphs, pred_graphs,
                         for type in rel_type_gold:
                             if type in rel_type:
                                 rel_class_stats[type]['m'] += 1
+
+                                gold_evi_for_pred_rel += len(gold_evidence_class[g_id][type])
+
+                                pred_evi_for_pred_rel += len(pred_evidence_class[p_id][type])
 
                                 _, _, e_m = score_lists(pred_evidence_class[p_id][type], gold_evidence_class[g_id][type])
 
@@ -419,6 +433,9 @@ def score_graphs(gold_graphs, pred_graphs,
     evi_prec, evi_rec, evi_f = compute_f1(
         pred_evi, gold_evi, match_evi
     )
+    evi_for_pred_rel_prec, evi_for_pred_rel_rec, evi_for_pred_rel_f = compute_f1(
+        pred_evi_for_pred_rel, gold_evi_for_pred_rel, match_evi
+    )
     # cluster_prec, cluster_rec, cluster_f = compute_f1(
     #    pred_cluster_total, gold_cluster_total, gold_cluster_matched
     # )
@@ -458,6 +475,8 @@ def score_graphs(gold_graphs, pred_graphs,
         nonzero_relation_prec * 100.0, nonzero_relation_rec * 100.0, nonzero_relation_f * 100.0))
     print('Evidence: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         evi_prec * 100.0, evi_rec * 100.0, evi_f * 100.0))
+    print('Evidence For Corr. Pred. Rel: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
+        evi_for_pred_rel_prec * 100.0, evi_for_pred_rel_rec * 100.0, evi_for_pred_rel_f * 100.0))
     # print('Macro Relation: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
     #    macro_relation_p * 100.0, macro_relation_r * 100.0, macro_relation_f * 100.0))
     print('Role identification: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
@@ -472,6 +491,8 @@ def score_graphs(gold_graphs, pred_graphs,
         t_cluster_prec * 100.0, t_cluster_rec * 100.0, t_cluster_f * 100.0))
     print('Trigger Cluster Match: P: {:.2f}, R: {:.2f}, F: {:.2f}'.format(
         t_matched_p * 100.0, t_matched_r * 100.0, t_matched_f * 100.0))
+
+    print(sorted(list(evid_pred_sent_num.items())))
 
     scores = {
         'entity': {'prec': entity_prec, 'rec': entity_rec, 'f': entity_f},

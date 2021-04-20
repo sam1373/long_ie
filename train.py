@@ -278,20 +278,20 @@ if skip_train == False:
     #                           betas=(0.9, 0.999),
     #                           amsbound=False)
 
-    #schedule = get_linear_schedule_with_warmup(optimizer,
-    #                                           num_warmup_steps=batch_num * config.warmup_epoch,
-    #                                           num_training_steps=batch_num * epoch_num)
+    schedule = get_linear_schedule_with_warmup(optimizer,
+                                               num_warmup_steps=batch_num * config.warmup_epoch,
+                                               num_training_steps=batch_num * epoch_num)
 
-    schedule_reduce_lr = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+    """schedule_reduce_lr = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                                     mode='max',
                                                                     verbose=True,
                                                                     patience=20
-                                                                    )
+                                                                    )"""
 
-    schedule = GradualWarmupScheduler(optimizer, multiplier=1, total_epoch=config.get("warmup_epoch"),
-                                      after_scheduler=schedule_reduce_lr)
+    #schedule = GradualWarmupScheduler(optimizer, multiplier=1, total_epoch=config.get("warmup_epoch"),
+    #                                  after_scheduler=schedule_reduce_lr)
 
-    schedule.step(epoch=0, metrics=0)
+    #schedule.step(epoch=0, metrics=0)
 
 """for i in range(1, 120):
     print(i)
@@ -381,7 +381,7 @@ while epoch < epoch_num:
                 loss_sum.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
                 optimizer.step()
-                #schedule.step()
+                schedule.step()
                 optimizer.zero_grad()
                 # losses.append(loss.item())
                 # if len(losses) == 100:
@@ -534,7 +534,7 @@ while epoch < epoch_num:
         for k, v in dev_g_i_scores.items():
             writer.add_scalar('dev_gi_' + k + '_f', v['f'], global_step)
 
-        print("Class Metrics:")
+        """print("Class Metrics:")
         for type in rel_class_stats.keys():
             rel_metrics = rel_class_stats[type]
             evid_metrics = evid_class_stats[type]
@@ -546,7 +546,7 @@ while epoch < epoch_num:
                   "rec:", round(evid_metrics['rec'], 2),
                   "f:", round(evid_metrics['f'], 2),
                   "thr:", round(evid_type_thr[vocabs["relation"][type]], 5),
-                  )
+                  )"""
 
         #adjust_thresholds(rel_type_thr, rel_class_stats, vocabs["relation"], epoch)
         #adjust_thresholds(evid_type_thr, evid_class_stats, vocabs["relation"], epoch)
@@ -578,7 +578,7 @@ while epoch < epoch_num:
 
             writer.add_scalar("best_dev_score", best_dev_score, global_step)
 
-    schedule.step(epoch=epoch + 1, metrics=cur_dev_score)
+    #schedule.step(epoch=epoch + 1, metrics=cur_dev_score)
 
     if epoch % 6 == 0 and not args.debug:
 
