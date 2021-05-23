@@ -18,7 +18,7 @@ from model import LongIE, Linears, PairLinears
 from graph import Graph
 from config import Config
 # from data import IEDataset
-from data2 import IEDataset
+from data import IEDataset
 from scorer import score_graphs
 from util import generate_vocabs, load_valid_patterns, save_result, best_score_by_task, \
     build_information_graph, label2onehot, load_model, \
