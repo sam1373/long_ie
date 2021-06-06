@@ -1,13 +1,4 @@
-import torch
 from torch import nn
-import torch.nn.functional as F
-
-from util import get_pairwise_idxs_separate
-
-from util import RegLayer
-
-import math
-
 
 
 class ContextTransformer(nn.Module):
@@ -16,13 +7,11 @@ class ContextTransformer(nn.Module):
 
         super().__init__()
 
-
         self.attn = []
         self.norm = []
         self.norm2 = []
         self.norm3 = []
         self.lin = []
-
 
         for i in range(num_layers):
             self.attn.append(
@@ -57,7 +46,6 @@ class ContextTransformer(nn.Module):
         attns = []
 
         for i in range(self.num_layers):
-
             x1, attn = self.attn[i](x, context, context)
 
             attns.append(attn)
@@ -67,5 +55,3 @@ class ContextTransformer(nn.Module):
             x = x + self.lin[i](x)
 
         return x, attns
-
-

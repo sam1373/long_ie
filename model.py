@@ -354,8 +354,6 @@ class LongIE(nn.Module):
         self.relation_nonzero_loss = nn.CrossEntropyLoss(weight=torch.Tensor([0.05, 1.]).cuda())
         self.cross_entropy = nn.CrossEntropyLoss()
 
-    def label_size(self, key: str):
-        return len(self.vocabs.get(key, {}))
 
     def encode_bert(self,
                     inputs: torch.Tensor,
@@ -452,56 +450,6 @@ class LongIE(nn.Module):
 
         return bert_outputs
 
-    def get_span_representations(self,
-                                 encoder_outputs,
-                                 idxs,
-                                 mask,
-                                 lens,
-                                 boundaries,
-                                 token_embed_ids,
-                                 max_span_len: int):
-        batch_size, seq_len, repr_dim = encoder_outputs.size()
-        max_span_len = min(seq_len, max_span_len)
-        idxs = idxs.unsqueeze(-1).expand(batch_size, -1, repr_dim)
-        mask = mask.unsqueeze(-1).expand(batch_size, -1, 1)
-
-        # lens = label2onehot(lens, max_span_len)
-        lens = lens.unsqueeze(0).expand(batch_size, -1, -1)  # .view(batch_size, -1, max_span_len)
-        lens = torch.argmax(lens, dim=-1)
-        lens = self.span_len_embed(lens)
-        # lens_repr = torch.zeros([lens.shape[0], max_span_len], device=lens.device)
-        # lens_repr = lens_repr.scatter(1, lens.unsqueeze(-1), 1).unsqueeze(0).expand(batch_size, -1, -1)
-
-        # print(boundaries)
-        # print(encoder_outputs.shape)
-
-        boundaries0 = boundaries.unsqueeze(-1).expand(batch_size, -1, repr_dim)
-
-        # bert
-        boundary_repr = encoder_outputs.gather(1, boundaries0)
-        boundary_repr = boundary_repr.view(batch_size, -1, repr_dim * (1 + self.config.get('use_end_boundary', True)))
-
-        if self.config.get('use_avg_repr', False):
-            avg_repr = ((encoder_outputs.gather(1, idxs) * mask)
-                        .view(batch_size, -1, max_span_len, repr_dim)
-                        .sum(2))
-            span_repr = torch.cat([boundary_repr, avg_repr, lens], dim=2)
-        else:
-            span_repr = torch.cat([boundary_repr, lens], dim=2)
-
-        if self.config.get('use_extra_word_embed'):
-            word_embed_repr = self.word_embed(token_embed_ids).detach()
-            word_embed_dim = word_embed_repr.shape[-1]
-
-            boundaries1 = boundaries.unsqueeze(-1).expand(batch_size, -1, word_embed_dim)
-
-            span_word_embeds = word_embed_repr.gather(1, boundaries1)
-            span_word_embeds = span_word_embeds.view(batch_size, -1,
-                                                     word_embed_dim * (1 + self.config.get('use_end_boundary', True)))
-
-            span_repr = torch.cat([span_repr, span_word_embeds], dim=2)
-
-        return span_repr
 
     def forward_nn(self, batch: Batch, predict: bool = False, epoch=0, gold_inputs=False):
         # Run the encoder to get contextualized word representations

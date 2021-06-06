@@ -94,7 +94,6 @@ def overlap_score(cluster_1, cluster_2, predicted_entities, gold_entities):
 
 # this way matching is 1-to-1 as clusters match when more than half is present in the other
 
-
 def compute_cluster_metrics(predicted_clusters, gold_clusters, predicted_entities, gold_entities):
     matched_predicted = []
     matched_gold = []
@@ -104,14 +103,7 @@ def compute_cluster_metrics(predicted_clusters, gold_clusters, predicted_entitie
                 matched_predicted.append(i)
                 matched_gold.append(j)
 
-    matched_predicted = set(matched_predicted)
     matched_gold = set(matched_gold)
-
-    # metrics = {
-    #    "p": len(matched_predicted) / (len(predicted_clusters) + 1e-7),
-    #    "r": len(matched_gold) / (len(gold_clusters) + 1e-7),
-    # }
-    # metrics["f1"] = 2 * metrics["p"] * metrics["r"] / (metrics["p"] + metrics["r"] + 1e-7)
 
     return len(matched_gold)
 
@@ -215,9 +207,6 @@ def score_graphs(gold_graphs, pred_graphs,
         gold_relations = gold_graph.relations
         pred_relations = pred_graph.relations
 
-        gold_evidence = gold_graph.evidence
-        pred_evidence = pred_graph.evidence
-
         gold_evidence_class = gold_graph.evidence_class
         pred_evidence_class = pred_graph.evidence_class
 
@@ -230,8 +219,6 @@ def score_graphs(gold_graphs, pred_graphs,
         else:
             gold_rel_num += sum([len(i[2]) for i in gold_relations])
             pred_rel_num += sum([len(i[2]) for i in pred_relations])
-
-        # cur_matched = 0
 
         for g in gold_evidence_class:
             for type, v in g.items():
@@ -303,20 +290,6 @@ def score_graphs(gold_graphs, pred_graphs,
 
                     break
 
-        """if len(gold_relations) == 0:
-            cur_rel_r = 1.
-        else:
-            cur_rel_r = cur_matched / len(gold_relations)
-        if len(pred_relations) == 0:
-            if len(gold_relations) == 0:
-                cur_rel_p = 1.
-            else:
-                cur_rel_p = 0
-        else:
-            cur_rel_p = cur_matched / len(pred_relations)
-
-        relation_r += cur_rel_r
-        relation_p += cur_rel_p"""
 
         # Trigger
         gold_triggers = gold_graph.triggers
@@ -518,5 +491,3 @@ def score_graphs(gold_graphs, pred_graphs,
     return scores
 
 
-def score_coref(gold_graphs, pred_graphs):
-    pass

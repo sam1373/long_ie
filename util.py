@@ -16,6 +16,14 @@ from collections import defaultdict
 import torch.nn.functional as F
 
 
+import matplotlib.pyplot as plt
+import numpy as np
+from highlight_text import ax_text, fig_text
+import matplotlib.colors as mcolors
+from sklearn.manifold import TSNE
+import seaborn as sns
+from matplotlib.colors import LogNorm
+
 def argmax(lst):
     max_idx = -1
     max_value = -100000
@@ -713,13 +721,6 @@ def align_pred_to_gold(true_entities, pred_entities):
     return alignment
 
 
-import matplotlib.pyplot as plt
-import numpy as np
-from highlight_text import ax_text, fig_text
-import matplotlib.colors as mcolors
-from sklearn.manifold import TSNE
-import seaborn as sns
-from matplotlib.colors import LogNorm
 
 
 def draw_attn_heatmap(prefix, writer, global_step, title, attn_scores, tokens, row_len=5):
